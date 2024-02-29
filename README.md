@@ -1,7 +1,7 @@
 
 ---
 
-# Nombre de tu Aplicación
+# SkyMonitor
 
 Breve descripción de tu aplicación aquí.
 
@@ -50,9 +50,6 @@ La combinación de estas funcionalidades proporciona a los usuarios una herramie
 - `app.py`: Archivo principal de la aplicación Flask.
 - `config.py`: Archivo de configuración, incluye la configuración de la base de datos.
 - `templates/`: Directorio que contiene los archivos HTML de la aplicación.
-- `static/`: Directorio que contiene archivos estáticos (CSS, JavaScript, imágenes, etc.).
-
-## Código de Ejemplo
 
 ## Contribución
 
@@ -63,5 +60,3 @@ La combinación de estas funcionalidades proporciona a los usuarios una herramie
 Este proyecto está bajo la [Licencia MIT](LICENSE).
 
 ---
-
-Asegúrate de reemplazar `Nombre de tu Aplicación`, las versiones de las dependencias y cualquier otra información relevante. Además, si tienes una estructura de proyecto diferente o funcionalidades adicionales, ajusta el README en consecuencia.
