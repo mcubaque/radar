@@ -57,6 +57,6 @@ La combinación de estas funcionalidades proporciona a los usuarios una herramie
 
 ## Licencia
 
-Este proyecto está bajo la [Licencia MIT](LICENSE).
+Este proyecto está bajo la [Licencia MIT](https://github.com/mcubaque/radar/blob/master/LICENSE).
 
 ---
