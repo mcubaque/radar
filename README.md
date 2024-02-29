@@ -34,7 +34,7 @@ Breve descripción de tu aplicación aquí.
 
 ## Funcionalidades Principales
 
-La aplicación **Nombre de tu Aplicación** es una herramienta diseñada para obtener y visualizar información en tiempo real sobre el tráfico aéreo en una zona geográfica específica. Utilizando tecnologías como Python, Flask, HTML, JavaScript, MySQL y la API de OpenSky, esta aplicación permite a los usuarios:
+La aplicación **SkyMonitor** es una herramienta diseñada para obtener y visualizar información en tiempo real sobre el tráfico aéreo en una zona geográfica específica. Utilizando tecnologías como Python, Flask, HTML, JavaScript, MySQL y la API de OpenSky, esta aplicación permite a los usuarios:
 
 - **Visualizar el Tráfico Aéreo en Tiempo Real:** La aplicación muestra en un mapa interactivo la ubicación y detalles de los vuelos en una región determinada. Los usuarios pueden observar la posición, altitud, velocidad y otros datos relevantes de las aeronaves que se encuentran en vuelo.
 
