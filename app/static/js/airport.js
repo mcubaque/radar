@@ -86,6 +86,7 @@ ${frequenciesBlock(data.frequencies)}
 }
 
 export async function openAirport(code, lat, lon) {
+    emit('card-open');
     closeAirportWatch();
     if (state.selected) { state.selected = null; emit('select'); }
     setTrack([]);

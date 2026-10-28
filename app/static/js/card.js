@@ -199,6 +199,7 @@ function trackPoints(id, points) {
 }
 
 export async function openFlight(id, fallback) {
+    emit('card-open');
     closeAirportWatch();
     state.selected = id;
     state.follow = false;

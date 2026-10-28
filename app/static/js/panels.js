@@ -18,6 +18,7 @@ export function openPanel(name) {
     $('#drawer-title').textContent = t(`${name}.title`);
     for (const section of $$('section[data-panel]', drawer)) section.hidden = section.dataset.panel !== name;
     for (const btn of $$('#toolbar [data-panel]')) btn.classList.toggle('active', btn.dataset.panel === name);
+    if (isCompact()) emit('panel-open');  // en pantallas compactas tarjeta y cajón ocupan el mismo sitio
     hooks[name]?.();
 }
 
@@ -28,6 +29,8 @@ export function closePanel() {
 }
 
 export const anyOpen = () => current !== null;
+
+on('card-open', () => isCompact() && current && closePanel());
 
 export function bindToolbar() {
     for (const btn of $$('#toolbar [data-panel]')) {

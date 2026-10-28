@@ -135,6 +135,7 @@ async function boot() {
         // en móvil la tarjeta es una hoja inferior: se desplaza el centro del mapa para no tapar el avión
         map.setPadding({ top: 0, left: 0, right: 0, bottom: isCompact() && state.selected ? Math.round(innerHeight * 0.45) : 0 });
     });
+    on('panel-open', closeCard);
     on('units', () => { redraw(); refreshLive(); renderList(); });
     on('lang', () => { showStatus(lastStatus.kind, lastStatus.text); showCount(); });
     on('replay-time', count => {

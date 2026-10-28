@@ -15,7 +15,10 @@ import { HORIZON_COLOR, TERRAIN_EXAGGERATION, setTerrain } from './weather.js';
 const PITCH = 76;        // cámara algo por encima del avión, mirando hacia delante y un poco hacia abajo
 const BASE_ZOOM = 19.6;  // con un avión de 38 m, la cámara queda a unos 200 m; los modelos más chicos acercan la cámara
 const REFERENCE_LENGTH_M = FAMILY_LENGTH_M.narrow;
-const HEADING_EASE = 0.06;
+const HEADING_TAU_S = 0.8;     // constantes de tiempo de los filtros que quitan el temblor (independientes de los fps)
+const POSITION_TAU_S = 1.5;
+const ALTITUDE_TAU_S = 0.6;
+const GROUND_TAU_S = 0.8;
 const ZONE_EVERY_MS = 3000;
 const HUD_EVERY_MS = 500;
 const REFERENCE_EVERY_MS = 60000;
@@ -36,6 +39,7 @@ let lastSettle = 0;
 let surface = { at: 0, hpa: null };       // presión en superficie bajo el avión: da la altura real sobre el suelo
 let runwaysAt = null;                     // [lat, lon] de la última consulta de pistas
 let runways = [];                         // {mesh, ends, official, z, buffer}: pistas cercanas; z es su altura fija
+let last = null;  // {at, target: [lat, lon], ground} del fotograma anterior; null al empezar
 const model = { lat: 0, lon: 0, heading: 0, altitude: 0, family: 'narrow', accent: '#2f80ed', meshKey: null };
 
 // --- capa WebGL: dibuja la malla del avión con la matriz de MapLibre (coordenadas Mercator) ---
@@ -252,14 +256,35 @@ function showHud(rec) {
     hud().textContent = [rec.cs || rec.id, rec.ty, units.altitude(rec.alt)[0], units.speed(rec.spd)[0], units.heading(rec.hdg)].filter(Boolean).join(' · ');
 }
 
+/**
+ * Acerca `value` a `target` con un filtro exponencial de constante `tau`. Lo que cambia de golpe en los datos (una lectura
+ * nueva, una tesela de relieve que carga) se reparte en el tiempo en vez de verse como un salto o un temblor.
+ */
+const approach = (value, target, dt, tau) => target + (value - target) * Math.exp(-dt / tau);
+
 function step() {
     const rec = flights.get(chaseId);
     if (!rec) return stopChase();
-    const [lat, lon] = currentPosition(rec);
-    model.heading = (model.heading + angleDiff(rec.hdg ?? model.heading, model.heading) * HEADING_EASE + 360) % 360;
-    model.altitude = modelAltitude(rec, map.queryTerrainElevation([lon, lat]) ?? 0);  // el relieve ya viene exagerado
-    model.lat = lat;
-    model.lon = lon;
+    const now = Date.now();
+    const dt = last ? Math.min((now - last.at) / 1000, 0.25) : 0;
+    const [targetLat, targetLon] = currentPosition(rec);
+    const groundNow = map.queryTerrainElevation([targetLon, targetLat]) ?? 0;  // el relieve ya viene exagerado
+    if (last) {
+        // la posición avanza con la estimación y solo el error acumulado se corrige despacio: sin retraso ni saltos
+        model.lat = approach(model.lat + (targetLat - last.target[0]), targetLat, dt, POSITION_TAU_S);
+        model.lon = approach(model.lon + (targetLon - last.target[1]), targetLon, dt, POSITION_TAU_S);
+        last.ground = approach(last.ground, groundNow, dt, GROUND_TAU_S);
+        model.heading = (model.heading + angleDiff(rec.hdg ?? model.heading, model.heading) * (1 - Math.exp(-dt / HEADING_TAU_S)) + 360) % 360;
+    } else {
+        model.lat = targetLat;
+        model.lon = targetLon;
+        last = { ground: groundNow };
+    }
+    last.at = now;
+    last.target = [targetLat, targetLon];
+    const altitude = modelAltitude(rec, last.ground);
+    model.altitude = dt ? approach(model.altitude, altitude, dt, ALTITUDE_TAU_S) : altitude;
+    const { lat, lon } = model;
     if (Date.now() - surface.at > REFERENCE_EVERY_MS) refreshSurface(lat, lon);
     if (!runwaysAt || Math.max(Math.abs(lat - runwaysAt[0]), Math.abs(lon - runwaysAt[1])) > RUNWAYS_MOVE_DEG) refreshRunways(lat, lon);
     settleRunways();
@@ -303,6 +328,7 @@ export function startChase(id) {
     surface = { at: 0, hpa: null };
     runwaysAt = null;
     runways = [];
+    last = null;
     frame = requestAnimationFrame(step);
 }
 
