@@ -5,7 +5,7 @@ import { applyI18n, t } from './i18n.js';
 import { map, setBasemap } from './map.js';
 import { emit, on, resolvedTheme, savePrefs, state } from './state.js';
 import * as units from './units.js';
-import { $, $$, esc } from './util.js';
+import { $, $$, esc, isCompact } from './util.js';
 
 const drawer = document.getElementById('drawer');
 const hooks = {}; // panel -> función que se ejecuta al abrirlo
@@ -34,6 +34,13 @@ export function bindToolbar() {
         btn.addEventListener('click', () => (current === btn.dataset.panel ? closePanel() : openPanel(btn.dataset.panel)));
     }
     $('#drawer-close').addEventListener('click', closePanel);
+    const toolbar = $('#toolbar'), toggle = $('#btn-tools');
+    const setCollapsed = collapsed => {
+        toolbar.classList.toggle('collapsed', collapsed);
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+    };
+    setCollapsed(isCompact() && matchMedia('(max-height: 700px)').matches);  // en pantallas bajas arranca recogida
+    toggle.addEventListener('click', () => setCollapsed(!toolbar.classList.contains('collapsed')));
 }
 
 // --- lista de vuelos visibles ---

@@ -3,7 +3,7 @@ import { state } from './state.js';
 
 const es = {
     'search.placeholder': 'Buscar vuelo, matrícula o aeropuerto', 'search.none': 'Sin resultados',
-    'toolbar.label': 'Herramientas',
+    'toolbar.label': 'Herramientas', 'tool.menu': 'Herramientas',
     'tool.locate': 'Mi ubicación', 'tool.list': 'Vuelos visibles', 'tool.filters': 'Filtros', 'tool.layers': 'Capas',
     'tool.replay': 'Reproducción histórica', 'tool.stats': 'Estadísticas', 'tool.watch': 'Seguimiento y alertas', 'tool.settings': 'Ajustes',
     'common.close': 'Cerrar', 'common.copied': 'Enlace copiado', 'common.error': 'Algo salió mal',
@@ -55,7 +55,7 @@ const es = {
 
 const en = {
     'search.placeholder': 'Search flight, registration or airport', 'search.none': 'No results',
-    'toolbar.label': 'Tools',
+    'toolbar.label': 'Tools', 'tool.menu': 'Tools',
     'tool.locate': 'My location', 'tool.list': 'Visible flights', 'tool.filters': 'Filters', 'tool.layers': 'Layers',
     'tool.replay': 'Historical replay', 'tool.stats': 'Statistics', 'tool.watch': 'Watchlist and alerts', 'tool.settings': 'Settings',
     'common.close': 'Close', 'common.copied': 'Link copied', 'common.error': 'Something went wrong',

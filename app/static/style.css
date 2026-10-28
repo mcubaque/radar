@@ -66,7 +66,9 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--border); borde
 @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, .25); } }
 
 /* barra de herramientas */
-#toolbar { position: absolute; z-index: 20; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: var(--radius); }
+#toolbar { position: absolute; z-index: 20; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: var(--radius); max-height: calc(100dvh - 24px); overflow-y: auto; scrollbar-width: none; }
+#toolbar #btn-tools { display: none; }
+#toolbar.collapsed > button:not(#btn-tools) { display: none; }
 #toolbar button { position: relative; width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; }
 #toolbar button:hover { background: var(--hover); }
 #toolbar button.active { background: var(--accent); color: #fff; }
@@ -200,6 +202,8 @@ body.chase #card, body.chase #drawer, body.chase #toolbar, body.chase #topbar, b
         top: auto; left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right));
         bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 55vh;
     }
+    #toolbar #btn-tools { display: grid; }
+    #toolbar { opacity: .94; }
     #replaybar { bottom: max(12px, env(safe-area-inset-bottom)); flex-wrap: wrap; border-radius: var(--radius); }
     #emergency { top: 64px; }
 }
@@ -230,6 +234,11 @@ body.chase #card, body.chase #drawer, body.chase #toolbar, body.chase #topbar, b
 }
 @media (pointer: coarse) and (min-height: 600px) {
     #toolbar button { width: 44px; height: 44px; }
+}
+/* pantallas muy bajas: botones mas pequenos en dos columnas para no tapar el mapa */
+@media (max-height: 420px) {
+    #toolbar:not(.collapsed) { flex-direction: row; flex-wrap: wrap; width: 92px; justify-content: center; }
+    #toolbar button { width: 40px; height: 40px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
