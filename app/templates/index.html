@@ -9,15 +9,8 @@
     <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
     <link rel="icon" href="{{ url_for('static', filename='icons/icon.svg') }}" type="image/svg+xml">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
-    <script>
-        // Aplica el tema antes de pintar para evitar un destello
-        try {
-            const theme = (JSON.parse(localStorage.getItem('skymonitor.prefs')) || {}).theme || 'auto';
-            const dark = theme === 'dark' || (theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-            document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-        } catch (e) { /* sin preferencias guardadas */ }
-    </script>
-    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+    <script src="{{ url_for('static', filename='js/theme-boot.js') }}"></script>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -38,6 +31,7 @@
     <nav id="toolbar" data-i18n-aria="toolbar.label" aria-label="Herramientas">
         <button id="btn-locate" data-i18n-title="tool.locate" title="Mi ubicación" aria-label="Mi ubicación"><svg viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg></button>
         <button data-panel="list" data-i18n-title="tool.list" title="Vuelos visibles" aria-label="Vuelos visibles"><svg viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg></button>
+        <button data-panel="special" data-i18n-title="tool.special" title="Aeronaves especiales" aria-label="Aeronaves especiales"><svg viewBox="0 0 24 24"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg><span class="badge" id="special-badge" hidden></span></button>
         <button data-panel="filters" data-i18n-title="tool.filters" title="Filtros" aria-label="Filtros"><svg viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg><span class="badge" id="filter-badge" hidden></span></button>
         <button data-panel="layers" data-i18n-title="tool.layers" title="Capas" aria-label="Capas"><svg viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg></button>
         <button id="btn-replay" data-i18n-title="tool.replay" title="Reproducción histórica" aria-label="Reproducción histórica" hidden><svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg></button>
@@ -61,6 +55,12 @@
                 </select>
             </label>
             <ul id="flight-list" class="rows"></ul>
+        </section>
+
+        <section data-panel="special" hidden>
+            <p class="hint" data-i18n="special.hint"></p>
+            <label class="check"><input type="checkbox" id="special-notify"> <span data-i18n="special.notify"></span></label>
+            <ul id="special-list" class="rows"></ul>
         </section>
 
         <section data-panel="filters" hidden>
@@ -92,6 +92,7 @@
             <label class="check"><input type="checkbox" id="l-trails"> <span data-i18n="layers.trails">Estelas de los aviones</span></label>
             <label class="check"><input type="checkbox" id="l-airports"> <span data-i18n="layers.airports">Aeropuertos</span></label>
             <label class="check"><input type="checkbox" id="l-rain"> <span data-i18n="layers.rain">Radar de lluvia</span></label>
+            <label class="check"><input type="checkbox" id="l-sigmet"> <span data-i18n="layers.sigmet">Zonas peligrosas (SIGMET)</span></label>
             <h3 data-i18n="layers.legend">Color por altitud</h3>
             <ul id="legend" class="legend"></ul>
         </section>
@@ -151,7 +152,7 @@
             <h3 data-i18n="settings.shortcuts">Atajos</h3>
             <p class="hint"><kbd>/</kbd> <span data-i18n="settings.sc.search">buscar</span> · <kbd>Esc</kbd> <span data-i18n="settings.sc.close">cerrar</span> · <kbd>F</kbd> <span data-i18n="settings.sc.follow">seguir vuelo</span></p>
             <h3 data-i18n="settings.credits">Fuentes de datos</h3>
-            <p class="hint">Vuelos: <a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol</a> (ODbL) y <a href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>, OpenSky opcional · Aeronaves: <a href="https://github.com/wiedehopf/tar1090-db" target="_blank" rel="noopener">tar1090-db</a> · Aeropuertos: <a href="https://ourairports.com" target="_blank" rel="noopener">OurAirports</a> · Rutas: <a href="https://github.com/vradarserver/standing-data" target="_blank" rel="noopener">Virtual Radar Server</a> · Aerolíneas: OpenFlights · Fotos: <a href="https://www.planespotters.net" target="_blank" rel="noopener">Planespotters</a> · Clima: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> y <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a> · Mapa: OpenFreeMap, CARTO y OpenStreetMap.</p>
+            <p class="hint">Vuelos: <a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol</a> (ODbL) y <a href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>, OpenSky opcional · Aeronaves: <a href="https://github.com/wiedehopf/tar1090-db" target="_blank" rel="noopener">tar1090-db</a> · Aeropuertos: <a href="https://ourairports.com" target="_blank" rel="noopener">OurAirports</a> · Rutas: <a href="https://github.com/vradarserver/standing-data" target="_blank" rel="noopener">Virtual Radar Server</a> · Aerolíneas: OpenFlights · Fotos: <a href="https://www.planespotters.net" target="_blank" rel="noopener">Planespotters</a> · METAR, TAF y SIGMET: <a href="https://aviationweather.gov" target="_blank" rel="noopener">NOAA Aviation Weather</a> · Pistas: OurAirports · Clima: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> y <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a> · Relieve: AWS Terrain Tiles · Mapa: OpenFreeMap, CARTO y OpenStreetMap.</p>
         </section>
     </aside>
 
@@ -167,10 +168,12 @@
         <button class="btn" id="rp-live" data-i18n="replay.live">Volver al vivo</button>
     </div>
 
+    <div id="chase-bar"><span id="chase-hud" aria-live="off"></span><button id="chase-exit" class="btn primary" type="button" data-i18n="chase.exit">Salir de la vista 3D</button></div>
+
     <div id="toasts" role="alert" aria-live="assertive"></div>
     <noscript><p style="position:absolute;top:80px;left:16px">SkyMonitor necesita JavaScript.</p></noscript>
 
-    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
     <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

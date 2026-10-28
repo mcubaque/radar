@@ -128,7 +128,39 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--border); borde
 #card small { color: var(--muted); font-size: 12px; }
 #card .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 
+#chase-bar { position: absolute; z-index: 30; left: 50%; bottom: max(28px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: 8px; }
+#chase-hud { padding: 4px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); font-size: 13px; font-variant-numeric: tabular-nums; }
+body.chase #chase-bar { display: flex; }
+body.chase #card, body.chase #drawer, body.chase #toolbar, body.chase #topbar, body.chase #emergency { display: none; }
+
+/* progreso de ruta, METAR y aeronaves especiales */
+.progress { margin: 8px 0 0; }
+.progress .bar { height: 6px; border-radius: 3px; background: var(--hover); overflow: hidden; }
+.progress .bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .6s; }
+.metar { display: grid; gap: 6px; margin-bottom: 8px; }
+.metar code, #card details code { display: block; padding: 6px 8px; border-radius: 6px; background: var(--hover); font-size: 11px; overflow-wrap: anywhere; white-space: normal; }
+.metar details { font-size: 12px; }
+.badge.cat { justify-self: start; font-weight: 700; }
+.badge.cat.info { background: #2563eb; }
+.badge.cat.warn { background: #dc2626; }
+.badge.cat.danger { background: #c026d3; }
+.tag { padding: 1px 8px; border-radius: 8px; font-size: 11px; background: var(--hover); }
+.tag.emergency { background: var(--danger); color: #fff; }
+.tag.military { background: var(--warn); color: #fff; }
+.tag.interesting { background: #7c3aed; color: #fff; }
+.tag.rare { background: var(--ok); color: #fff; }
+.sigmet-popup { color: #0f172a; font-size: 12px; }
+#card a.btn { display: inline-block; margin-top: 10px; text-decoration: none; color: inherit; }
+
+.freqs { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.freqs li { display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; }
+.freqs li span:first-child { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.freqs b { font-variant-numeric: tabular-nums; }
+
 /* estadísticas */
+.records { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.records > div { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; display: grid; }
+.records b { font-size: 16px; }
 .vbars { display: flex; align-items: flex-end; gap: 2px; height: 90px; border-bottom: 1px solid var(--border); }
 .vbars span { flex: 1; max-width: 22px; min-height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; opacity: .85; }
 .axis { display: flex; justify-content: space-between; margin-top: 2px; }

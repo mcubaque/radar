@@ -38,11 +38,13 @@ export async function addWatch(kind, value, label) {
 const time = ts => new Date(ts * 1000).toLocaleString(state.lang, { dateStyle: 'short', timeStyle: 'short' });
 
 export async function render() {
+    const headers = { 'X-Admin-Token': token() };
+    let locked = false;
     const [watch, alerts] = await Promise.all([
-        fetchJson('/api/watchlist').catch(() => []),
-        fetchJson('/api/alerts').catch(() => []),
+        fetchJson('/api/watchlist', { headers }).catch(e => { locked = e.status === 401; return []; }),
+        fetchJson('/api/alerts', { headers }).catch(() => []),
     ]);
-    $('#watch-list').innerHTML = watch.length
+    $('#watch-list').innerHTML = locked ? `<li class="hint">${esc(t('watch.locked'))}</li>` : watch.length
         ? watch.map(w => `<li class="row"><span><b>${esc(w.value)}</b> <small>${esc(w.kind)}${w.label ? ' · ' + esc(w.label) : ''}</small></span>
             <button class="icon-btn" data-del="${w.id}" aria-label="${esc(t('watch.remove'))}">×</button></li>`).join('')
         : `<li class="hint">${esc(t('watch.empty'))}</li>`;

@@ -82,3 +82,61 @@ export function circlePolygon(lat, lon, radiusKm, steps = 72) {
     }
     return coords;
 }
+
+// --- aeronaves especiales ---
+
+// Tipos OACI poco comunes o llamativos para aficionados
+export const RARE_TYPES = new Set([
+    'A388', 'A225', 'A124', 'B748', 'A3ST', 'A337', 'BLCF', 'B52', 'C5M', 'C17', 'E3TF', 'K35R', 'V22', 'A400',
+    'IL76', 'AN12', 'B703', 'CONC', 'DC3', 'DC6', 'C130', 'E6', 'B2', 'F22', 'F35',
+]);
+
+/** Por qué un vuelo es especial ('emergency' | 'military' | 'interesting' | 'rare') o null. */
+export function specialReason(f) {
+    if (f.em) return 'emergency';
+    if (f.mil) return 'military';
+    if (f.int) return 'interesting';
+    if (RARE_TYPES.has(f.ty)) return 'rare';
+    return null;
+}
+
+// --- ruta, ETA y viento ---
+
+const R_KM = 6371;
+const rad = d => (d * Math.PI) / 180;
+
+export function distanceKm(lat1, lon1, lat2, lon2) {
+    const a = Math.sin(rad(lat2 - lat1) / 2) ** 2
+        + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lon2 - lon1) / 2) ** 2;
+    return 2 * R_KM * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** Avance del vuelo entre origen y destino: {fraction 0..1, remainingKm, etaMin|null}. */
+export function routeProgress(origin, destination, lat, lon, speedMs) {
+    const total = distanceKm(origin.lat, origin.lon, destination.lat, destination.lon);
+    const remaining = distanceKm(lat, lon, destination.lat, destination.lon);
+    if (!total) return null;
+    const fraction = Math.min(1, Math.max(0, 1 - remaining / total));
+    // por debajo de ~100 km/h no hay estimación fiable (rodaje o parado)
+    const etaMin = speedMs > 28 ? Math.round(remaining / (speedMs * 3.6) * 60) : null;
+    return { fraction, remainingKm: remaining, etaMin };
+}
+
+/**
+ * Efecto del viento: `headKt` > 0 es viento de cara, < 0 de cola; `tasKt` es la velocidad aerodinámica estimada.
+ * El viento sopla DESDE `windDir`.
+ */
+export function windComponents(trackDeg, groundSpeedMs, windDir, windKt) {
+    const gsKt = groundSpeedMs * 1.94384;
+    const angle = rad(windDir - trackDeg);
+    const headKt = windKt * Math.cos(angle);
+    const crossKt = windKt * Math.sin(angle);
+    return { headKt, crossKt, tasKt: Math.hypot(gsKt + headKt, crossKt) };
+}
+
+/** Extremos [lon, lat] de una pista: su centro desplazado media longitud hacia cada cabecera. */
+export function runwayLine(rw) {
+    const half = (rw.length_ft || 3000) * 0.3048 / 2;
+    const end = hdg => advance(rw.lat, rw.lon, half, hdg, 1).reverse();
+    return [end(rw.le_hdg), end(rw.he_hdg)];
+}

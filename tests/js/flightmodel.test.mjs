@@ -53,3 +53,37 @@ test('altura sobre el terreno: caso Bogota (presion en superficie 758,5 hPa)', (
     assert.ok(Math.abs(m.heightAboveGround(ground + 300, 758.5) - 300) < 1e-6);
     assert.equal(m.heightAboveGround(ground - 50, 758.5), 0);  // nunca negativa
 });
+
+test('aeronave especial: emergencia > militar > interés > tipo raro', () => {
+    assert.equal(m.specialReason({ em: 1, mil: 1 }), 'emergency');
+    assert.equal(m.specialReason({ mil: 1 }), 'military');
+    assert.equal(m.specialReason({ int: 1 }), 'interesting');
+    assert.equal(m.specialReason({ ty: 'A388' }), 'rare');
+    assert.equal(m.specialReason({ ty: 'B738' }), null);
+});
+
+test('progreso de ruta y ETA', () => {
+    const bog = { lat: 4.70, lon: -74.15 }, mde = { lat: 6.16, lon: -75.42 };
+    const half = m.routeProgress(bog, mde, 5.43, -74.78, 200);
+    assert.ok(half.fraction > 0.45 && half.fraction < 0.55);
+    assert.ok(half.etaMin > 5 && half.etaMin < 12);
+    assert.equal(m.routeProgress(bog, mde, 5.43, -74.78, 5).etaMin, null);
+    assert.equal(m.routeProgress(bog, mde, 6.16, -75.42, 200).fraction, 1);
+    assert.equal(m.routeProgress(bog, bog, 4.7, -74.15, 200), null);
+});
+
+test('viento: de cara resta velocidad sobre el suelo, de cola la suma', () => {
+    const head = m.windComponents(90, 200, 90, 40);  // viento DESDE el este, avión hacia el este
+    assert.ok(Math.abs(head.headKt - 40) < 1e-9);
+    assert.ok(Math.abs(head.tasKt - (200 * 1.94384 + 40)) < 1e-6);
+    const tail = m.windComponents(90, 200, 270, 40);
+    assert.ok(Math.abs(tail.headKt + 40) < 1e-9);
+    assert.ok(Math.abs(m.windComponents(90, 200, 0, 30).headKt) < 1e-9);  // viento cruzado puro
+});
+
+test('pista: línea centrada con la longitud pedida', () => {
+    const [a, b] = m.runwayLine({ lat: 4.7, lon: -74.1, length_ft: 12467, le_hdg: 90, he_hdg: 270 });
+    assert.ok(a[0] > b[0] && Math.abs(a[1] - b[1]) < 1e-6);
+    const km = m.distanceKm(a[1], a[0], b[1], b[0]);
+    assert.ok(Math.abs(km - 12467 * 0.0003048) < 0.05);
+});

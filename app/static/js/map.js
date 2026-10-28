@@ -23,7 +23,7 @@ export function initMap({ lat, lon, zoom }) {
         attributionControl: false,
     });
     map.touchZoomRotate.disableRotation();
-    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: 'Vuelos: adsb.lol · adsb.fi' }));
+    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: 'Vuelos: <a href="https://opensky-network.org" target="_blank" rel="noopener">OpenSky</a> · <a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol</a> · <a href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>' }));
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     map.on('style.load', () => styleHandlers.forEach(fn => fn()));
     return map;

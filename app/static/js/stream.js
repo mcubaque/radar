@@ -39,6 +39,7 @@ function connect(zone, fallback) {
     source.addEventListener('flights', e => {
         const msg = JSON.parse(e.data);
         ingest(msg);
+        if (msg.meta?.source) emit('meta', msg.meta);
         const down = msg.errors.length > 0 && msg.flights.length === 0;
         setStatus(down ? 'error' : 'ok', down ? t('toast.source') : null);
     });
@@ -54,13 +55,21 @@ function connect(zone, fallback) {
 
 /** Conecta o reconecta si la vista salió de la zona pedida; no hace nada en reproducción histórica. */
 export function syncViewport() {
-    if (state.mode !== 'live') return;
+    if (state.mode !== 'live' || state.chase) return;
     if (map.getZoom() < state.config.min_zoom) {
         stop();
         return setStatus('idle', t('status.zoom'));
     }
     const view = bounds();
     if (source && contains(connected, view)) return;
+    connect(padded(view, PAD), view);
+}
+
+/** Mantiene la conexión sobre la zona de un punto (la cámara en primera persona no define una zona útil en el mapa). */
+export function followZone(lat, lon) {
+    const near = { lamin: lat - 0.1, lamax: lat + 0.1, lomin: lon - 0.1, lomax: lon + 0.1 };
+    if (source && contains(connected, near)) return;
+    const view = { lamin: lat - 0.6, lamax: lat + 0.6, lomin: lon - 0.6, lomax: lon + 0.6 };
     connect(padded(view, PAD), view);
 }
 

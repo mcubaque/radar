@@ -1,15 +1,14 @@
-// Tarjeta lateral: detalle de un vuelo o de un aeropuerto.
+// Tarjeta lateral con el detalle de un vuelo (la de aeropuerto está en airport.js).
+import { closeAirportWatch, isAirportOpen } from './airport.js';
 import { flights, setTrack } from './flightlayer.js';
-import { MAX_AGL_ALT_M, emergencyLabel, heightAboveGround } from './flightmodel.js';
+import { MAX_AGL_ALT_M, emergencyLabel, heightAboveGround, routeProgress, windComponents } from './flightmodel.js';
 import { t } from './i18n.js';
-import { map } from './map.js';
 import { emit, state } from './state.js';
-import { toast } from './toast.js';
+import { setRunways } from './weather.js';
 import * as units from './units.js';
 import { $, esc, fetchJson } from './util.js';
 
 const card = document.getElementById('card');
-let airportWatcher = null;
 
 const field = name => $(`[data-f="${name}"]`, card);
 const setText = (name, text) => { const el = field(name); if (el) el.textContent = text ?? ''; };
@@ -26,6 +25,7 @@ function flightTemplate() {
     <span class="badge" data-f="status"></span>
     <span class="badge warn" data-f="mil" hidden>${esc(t('card.military'))}</span>
     <span class="badge danger" data-f="em" hidden></span>
+    <span class="badge warn" data-f="int" hidden>${esc(t('card.interesting'))}</span>
   </div>
 </header>
 <div class="route" data-f="route" hidden>
@@ -33,12 +33,15 @@ function flightTemplate() {
   <span class="arrow" aria-hidden="true">✈</span>
   <div><b data-f="destination"></b><small data-f="destination-name"></small></div>
 </div>
+<div class="progress" data-f="progress" hidden role="img" aria-label="${esc(t('card.progress'))}">
+  <div class="bar"><i data-f="bar"></i></div><small data-f="eta"></small>
+</div>
 <p class="hint" data-f="routenote" hidden>${esc(t('card.routenote'))}</p>
 <dl class="grid">
   <div><dt>${esc(t('card.alt'))}</dt><dd data-f="alt">—</dd><small data-f="alt2"></small></div>
   <div><dt>${esc(t('card.agl'))}</dt><dd data-f="agl">—</dd><small data-f="agl2"></small></div>
   <div><dt>${esc(t('card.speed'))}</dt><dd data-f="spd">—</dd><small data-f="spd2"></small></div>
-  ${row(t('card.heading'), 'hdg')}${row(t('card.vrate'), 'vr')}${row(t('card.squawk'), 'sq')}
+  ${row(t('card.heading'), 'hdg')}${row(t('card.vrate'), 'vr')}${row(t('card.wind'), 'wind')}${row(t('card.tas'), 'tas')}${row(t('card.squawk'), 'sq')}
 </dl>
 <dl class="info">
   ${row(t('card.reg'), 'reg')}${row(t('card.aircraft'), 'type')}
@@ -46,6 +49,7 @@ function flightTemplate() {
 </dl>
 <div class="actions">
   <button class="btn" data-act="follow" aria-pressed="false">${esc(t('card.follow'))}</button>
+  <button class="btn" data-act="chase">${esc(t('card.chase'))}</button>
   <button class="btn" data-act="watch">${esc(t('card.watch'))}</button>
   <button class="btn" data-act="share">${esc(t('card.share'))}</button>
 </div>`;
@@ -68,6 +72,47 @@ async function ensureReference(rec) {
     }
 }
 
+// Ruta del vuelo seleccionado (para progreso y ETA) y viento en su altitud
+let currentRoute = null;
+let windInfo = { at: 0, wind: null };
+
+async function ensureWind(rec) {
+    if (rec.gnd || rec.alt == null || Date.now() - windInfo.at < 60000) return;
+    windInfo = { ...windInfo, at: Date.now() };  // tambien tras un fallo, para no insistir cada segundo
+    try {
+        const { wind } = await fetchJson(`/api/wind?lat=${rec.lat}&lon=${rec.lon}&alt=${Math.round(rec.alt)}`);
+        windInfo = { at: Date.now(), wind };
+        refreshLive();
+    } catch { /* sin dato: viento y velocidad aerodinámica quedan en "—" */ }
+}
+
+function fillWind(rec) {
+    const { wind } = windInfo;
+    if (rec.gnd || !wind || rec.spd == null || rec.hdg == null) {
+        setText('wind', '—');
+        setText('tas', '—');
+        return;
+    }
+    const { headKt, crossKt, tasKt } = windComponents(rec.hdg, rec.spd, wind.dir, wind.kt);
+    const main = Math.abs(headKt) >= Math.abs(crossKt) ? [headKt, headKt >= 0 ? 'card.headwind' : 'card.tailwind'] : [crossKt, 'card.crosswind'];
+    const toUnit = kt => units.speed(Math.abs(kt) / 1.94384)[0];
+    setText('wind', `${toUnit(main[0])} ${t(main[1])}`);
+    setText('tas', `≈ ${units.speed(tasKt / 1.94384)[0]}`);
+}
+
+function fillProgress(rec) {
+    const el = field('progress');
+    if (!el) return;
+    const o = currentRoute?.origin, d = currentRoute?.destination;
+    const p = o?.lat != null && d?.lat != null && !rec.gnd ? routeProgress(o, d, rec.lat, rec.lon, rec.spd) : null;
+    el.hidden = !p;
+    if (!p) return;
+    field('bar').style.width = `${Math.round(p.fraction * 100)}%`;
+    const left = `${units.distance(p.remainingKm)} ${t('card.remaining')}`;
+    const eta = p.etaMin == null ? '' : ` · ${t('card.eta')} ${p.etaMin >= 60 ? `${Math.floor(p.etaMin / 60)} h ${p.etaMin % 60} min` : `${p.etaMin} min`}`;
+    setText('eta', left + eta);
+}
+
 function fillAltitudes(rec) {
     const [alt, alt2] = units.altitude(rec.alt);
     setText('alt', rec.gnd ? '—' : alt);
@@ -85,6 +130,9 @@ export function fillLive(rec) {
     const [spd, spd2] = units.speed(rec.spd);
     fillAltitudes(rec);
     ensureReference(rec);
+    ensureWind(rec);
+    fillWind(rec);
+    fillProgress(rec);
     setText('spd', spd);
     setText('spd2', spd2);
     setText('hdg', units.heading(rec.hdg));
@@ -95,6 +143,7 @@ export function fillLive(rec) {
     setText('status', live ? (rec.gnd ? t('card.ground') : t('card.airborne')) : t('card.nosignal'));
     field('status')?.classList.toggle('ground', !live || !!rec.gnd);
     field('mil').hidden = !rec.mil;
+    field('int').hidden = !rec.int || !!rec.mil;
     const em = field('em');
     em.hidden = !rec.em;
     em.textContent = rec.em ? `${t('card.emergency')} ${rec.sq || ''}`.trim() : '';
@@ -103,7 +152,7 @@ export function fillLive(rec) {
 }
 
 export function refreshLive() {
-    if (!state.selected || airportWatcher !== null) return;
+    if (!state.selected || isAirportOpen()) return;
     const rec = flights.get(state.selected);
     if (rec) {
         card.dataset.last = JSON.stringify(rec);
@@ -123,6 +172,7 @@ function fillDetails(data) {
     setText('type', aircraft.description || aircraft.type_code || '—');
     setText('owner', airline?.name || aircraft.owner || '—');
     if (data.military) field('mil').hidden = false;
+    currentRoute = route;
     field('route').hidden = field('routenote').hidden = !route;
     if (route) {
         setText('origin', airportText(route.origin));
@@ -153,6 +203,9 @@ export async function openFlight(id, fallback) {
     state.selected = id;
     state.follow = false;
     reference = { key: null, hpa: null };
+    currentRoute = null;
+    windInfo = { at: 0, wind: null };
+    setRunways();
     emit('select');
     card.innerHTML = flightTemplate();
     card.hidden = false;
@@ -182,51 +235,7 @@ export function closeCard() {
         emit('select');
     }
     setTrack([]);
-}
-
-// --- aeropuerto ---
-
-function closeAirportWatch() {
-    if (airportWatcher) clearInterval(airportWatcher);
-    airportWatcher = null;
-}
-
-const flightRow = f => `<li><button class="row-btn" data-pick="${esc(f.id)}"><b>${esc(f.cs || f.id)}</b>
-    <span>${esc(units.distance(f.dist_km))} · ${esc(units.altitude(f.alt)[0])}</span></button></li>`;
-
-function weatherText(w) {
-    if (!w) return '—';
-    const wind = `${Math.round(w.wind_direction_10m)}° ${Math.round(w.wind_speed_10m)} kt`;
-    return `${Math.round(w.temperature_2m)} °C · ${t('airport.wind')} ${wind}`;
-}
-
-async function renderAirport(code) {
-    const data = await fetchJson(`/api/airport/${encodeURIComponent(code)}`);
-    const a = data.airport;
-    const list = items => (items.length ? `<ul class="rows">${items.map(flightRow).join('')}</ul>` : `<p class="hint">${esc(t('airport.none'))}</p>`);
-    card.innerHTML = `
-<button class="icon-btn close" data-act="close" aria-label="${esc(t('card.close'))}">×</button>
-<header><h2>${esc(a.iata || a.icao)} <small>${esc(a.icao)}</small></h2><div class="sub">${esc(a.name)}</div>
-  <div class="sub">${esc([a.city, a.country].filter(Boolean).join(', '))}</div></header>
-<dl class="info">
-  <div><dt>${esc(t('airport.weather'))}</dt><dd>${esc(weatherText(data.weather))}</dd></div>
-  <div><dt>${esc(t('airport.elevation'))}</dt><dd>${esc(units.altitude((a.elevation_ft ?? 0) * 0.3048)[0])}</dd></div>
-  <div><dt>${esc(t('airport.ground'))}</dt><dd>${data.ground}</dd></div>
-  <div><dt>${esc(t('airport.near'))}</dt><dd>${data.airborne_near}</dd></div>
-</dl>
-<h3>${esc(t('airport.arriving'))}</h3>${list(data.arriving)}
-<h3>${esc(t('airport.departing'))}</h3>${list(data.departing)}`;
-}
-
-export async function openAirport(code, lat, lon) {
-    closeAirportWatch();
-    if (state.selected) { state.selected = null; emit('select'); }
-    setTrack([]);
-    card.hidden = false;
-    if (lat != null) map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 9) });
-    const load = () => renderAirport(code).catch(() => toast(t('common.error'), { type: 'error' }));
-    await load();
-    airportWatcher = setInterval(load, 15000);
+    setRunways();
 }
 
 // --- acciones de la tarjeta ---

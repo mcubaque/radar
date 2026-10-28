@@ -1,4 +1,6 @@
-import { closeCard, openAirport, openFlight, refreshLive, setFollowButton } from './card.js';
+import { openAirport } from './airport.js';
+import { bindChase, startChase, stopChase } from './chase.js';
+import { closeCard, openFlight, refreshLive, setFollowButton } from './card.js';
 import { bindExtras, refreshAirportsSoon } from './extras.js';
 import { bindPicking, flights, redraw, startAnimation, visibleFlights } from './flightlayer.js';
 import { applyI18n, t } from './i18n.js';
@@ -9,11 +11,13 @@ import {
 import { bindReplay, exitReplay, loadFrameSoon } from './replay.js';
 import { bindSearch } from './search.js';
 import { on, state } from './state.js';
+import { bindSpecial } from './special.js';
 import { bindStats } from './stats.js';
 import { onStatus, syncViewport, syncViewportSoon } from './stream.js';
 import { toast } from './toast.js';
 import { $, $$, debounce, fetchJson, isCompact } from './util.js';
 import { readHash, savedView, writeView } from './urlstate.js';
+import { bindWeather } from './weather.js';
 import { addWatch, bindWatch, render as renderWatch, showAlert } from './watch.js';
 
 const DEFAULT_VIEW = { lat: 40.7, lon: -74, zoom: 8 };
@@ -29,10 +33,24 @@ function showStatus(kind, text) {
     $('.txt', statusEl).textContent = text;
 }
 
+const compactNumber = n => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+/** Fuente activa y créditos de OpenSky; `slow` indica que el servidor espacia las peticiones para cuidar la cuota. */
+function sourceText() {
+    const m = state.meta;
+    if (!m?.source) return '';
+    const credits = m.credits != null ? ` · ${compactNumber(m.credits)} ${t('status.credits')}` : '';
+    return ` · ${m.source}${credits}`;
+}
+
 function showCount() {
     if (state.mode === 'replay') return;
-    const text = `${t('status.flights', { n: visibleFlights().length })} · ${t('status.live')}`;
-    showStatus('ok', text);
+    const text = `${t('status.flights', { n: visibleFlights().length })} · ${t('status.live')}${sourceText()}`;
+    showStatus(state.meta?.slow > 1 ? 'warn' : 'ok', text);
+    const m = state.meta;
+    statusEl.title = m?.source
+        ? `${t('status.src')}: ${m.source}${m.credits != null ? ` · ${m.credits} ${t('status.credits')}` : ''}${m.slow > 1 ? ` · ${t('status.slow')}` : ''}`
+        : '';
 }
 
 // --- emergencias ---
@@ -71,6 +89,7 @@ async function cardAction(action) {
     const rec = flights.get(state.selected);
     if (action === 'close') closeCard();
     else if (action === 'follow') toggleFollow();
+    else if (action === 'chase') startChase(state.selected);
     else if (action === 'share') {
         await navigator.clipboard?.writeText(location.href).catch(() => {});
         toast(t('common.copied'), { type: 'ok', timeout: 2500 });
@@ -103,9 +122,10 @@ async function boot() {
     startAnimation();
 
     bindToolbar(); bindList(); bindFilters(); bindLayers(); bindSettings();
-    bindSearch(); bindStats(); bindWatch(); bindReplay(); bindExtras();
+    bindSearch(); bindStats(); bindWatch(); bindReplay(); bindExtras(); bindWeather(); bindChase(); bindSpecial();
 
     onStatus((kind, text) => (text ? showStatus(kind, text) : showCount()));
+    on('meta', m => { state.meta = m; showCount(); });
     on('pick', pick);
     on('pick-airport', pickAirport);
     on('card-action', cardAction);
@@ -152,7 +172,8 @@ async function boot() {
     document.addEventListener('keydown', e => {
         const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
         if (e.key === 'Escape') {
-            if (anyOpen()) closePanel();
+            if (state.chase) stopChase();
+            else if (anyOpen()) closePanel();
             else if (state.mode === 'replay') exitReplay();
             else closeCard();
         } else if (e.key.toLowerCase() === 'f' && !typing && !e.ctrlKey && !e.metaKey) toggleFollow();

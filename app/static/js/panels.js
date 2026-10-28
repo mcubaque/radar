@@ -119,7 +119,7 @@ function renderLegend() {
 }
 
 export function bindLayers() {
-    for (const name of ['trails', 'airports', 'rain']) {
+    for (const name of ['trails', 'airports', 'rain', 'sigmet']) {
         const box = $(`#l-${name}`);
         box.checked = state.layers[name];
         box.addEventListener('change', () => {

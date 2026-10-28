@@ -103,10 +103,17 @@ export function bindPicking() {
     map.on('mouseleave', 'planes', () => (map.getCanvas().style.cursor = ''));
 }
 
-export const setTrack = points =>
-    map.getSource('track')?.setData(points.length > 1
-        ? { type: 'Feature', geometry: { type: 'LineString', coordinates: points.map(p => [p[1], p[0]]) } }
+let trackLine = [];  // [lon, lat] del trazo del vuelo seleccionado
+
+const drawTrack = () =>
+    map.getSource('track')?.setData(trackLine.length > 1
+        ? { type: 'Feature', geometry: { type: 'LineString', coordinates: trackLine } }
         : empty);
+
+export function setTrack(points) {
+    trackLine = points.map(p => [p[1], p[0]]);
+    drawTrack();
+}
 
 // --- datos ---
 
@@ -129,6 +136,12 @@ export function ingest(msg) {
     }
     for (const id of msg.gone) flights.delete(id);
     for (const f of msg.flights) upsert(f, now, flights.get(f.id));
+    const selected = flights.get(state.selected);
+    const tip = trackLine[trackLine.length - 1];
+    if (selected && tip && state.mode === 'live' && (tip[0] !== selected.lon || tip[1] !== selected.lat)) {
+        trackLine.push([selected.lon, selected.lat]);  // el trazo avanza con el avión
+        drawTrack();
+    }
     drawTrails();
     emit('flights');
 }
@@ -153,6 +166,9 @@ function positionOf(rec, now) {
     }
     return target;
 }
+
+/** Posición estimada ahora de un vuelo (extrapolada y suavizada), [lat, lon]. */
+export const currentPosition = rec => positionOf(rec, Date.now());
 
 export const visibleFlights = () => [...flights.values()].filter(f => model.passes(f, state.filters));
 
