@@ -37,7 +37,7 @@ services:
     volumes:
       - radar_data:/app/data
     ports:
-      - "127.0.0.1:8000:8000"  # solo local; en el servidor va detras del proxy inverso
+      - "127.0.0.1:${APP_PORT:-8000}:8000"  # solo local; en el servidor va detras del proxy inverso
 
 volumes:
   radar_pg_data:
