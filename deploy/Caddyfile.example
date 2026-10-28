@@ -1,0 +1,9 @@
+# Alternativa con Caddy: HTTPS automatico. flush_interval -1 desactiva el buffering (necesario para SSE).
+radar.example.com {
+    encode gzip
+    reverse_proxy 127.0.0.1:8000 {
+        flush_interval -1
+    }
+    @health path /health
+    respond @health 404
+}

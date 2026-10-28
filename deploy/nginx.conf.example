@@ -1,0 +1,48 @@
+# Ejemplo de proxy inverso para SkyMonitor (la app escucha en 127.0.0.1:8000, ver docker-compose.yml).
+# Con TRUST_PROXY=1 la app usa X-Forwarded-For/Proto para el limitador y HSTS.
+
+server {
+    listen 80;
+    server_name radar.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name radar.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/radar.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/radar.example.com/privkey.pem;
+
+    gzip on;
+    gzip_types application/json text/css application/javascript image/svg+xml;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Server-Sent Events: sin buffering ni cache, y conexion larga (la app envia un ping cada 15 s)
+    location /api/stream {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+        chunked_transfer_encoding off;
+    }
+
+    # /health solo desde el propio servidor
+    location = /health {
+        allow 127.0.0.1;
+        deny all;
+        proxy_pass http://127.0.0.1:8000;
+    }
+}

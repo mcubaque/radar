@@ -11,7 +11,10 @@ Mapa de tráfico aéreo en tiempo real hecho solo con datos y herramientas gratu
 - **Búsqueda** de vuelos, matrículas y aeropuertos, con sugerencias y teclado (`/` para enfocar).
 - **Filtros** (tipo, altitud, tierra, militares, callsign), lista de vuelos visibles, emergencias resaltadas (squawk 7500/7600/7700).
 - **Historial y reproducción** de las zonas grabadas, **estadísticas** (vuelos por hora, aerolíneas, altitudes) y **lista de seguimiento** con alertas por Telegram o correo.
-- Capas opcionales: radar de lluvia y anillos de alcance de un receptor ADS-B propio.
+- Capas opcionales: radar de lluvia, **zonas peligrosas SIGMET** (tormentas, turbulencia, hielo, ceniza) y anillos de alcance de un receptor ADS-B propio.
+- **Lo que otros mapas gratuitos no juntan**: METAR y TAF oficiales en la ficha del aeropuerto con su categoría de vuelo (VFR/IFR), **pista en uso** deducida del tráfico y pistas dibujadas en el mapa, **frecuencias de radio** del aeropuerto (ATIS, aproximación, torre…) y enlace opcional para buscar audio en LiveATC, **progreso de ruta y hora estimada de llegada**, **viento en altura** (de cara/cola/cruzado y velocidad aerodinámica estimada), **aeronaves especiales** (emergencias, militares, de interés, A380/Antonov/Beluga…) con aviso opcional, y **récords de tu cielo** en las estadísticas.
+- **Vista 3D en primera persona**: desde la ficha de un vuelo, la cámara se pone detrás del avión, a su altura real, sobre el relieve en 3D con imagen satelital (Sentinel-2) y cielo con neblina, con un modelo 3D del avión según su tipo (jet de fuselaje estrecho o ancho, cuatrimotor, turbohélice, jet ejecutivo, avioneta, helicóptero) y la cola con el color de su aerolínea, dibujado por una capa WebGL propia. Las pistas de los aeropuertos cercanos se dibujan planas (asfalto, bordes, eje y umbrales) y la altura del avión se corrige con la presión de superficie para que el avión no se hunda al aterrizar (se sale con Esc o el botón). Requiere MapLibre 5.
+- **Transparencia de la fuente**: el indicador de estado muestra qué fuente está activa y los créditos que quedan de OpenSky; con pocos créditos el servidor espacia las actualizaciones solo.
 - Español e inglés, unidades de aviación o métricas, enlaces compartibles (`#lat,lon,zoom,vuelo`), PWA instalable, accesible por teclado.
 
 ## Cómo funciona
@@ -64,9 +67,9 @@ El historial guarda una posición cuando pasaron 30 s, el rumbo cambió 5° o el
 
 ## API
 
-`/api/stream` (SSE) · `/api/flights` · `/api/aircraft/<icao24>` · `/api/photo/<icao24>` · `/api/track/<icao24>` · `/api/search` · `/api/airports` · `/api/airport/<código>` · `/api/replay` · `/api/replay/range` · `/api/stats` · `/api/watchlist` · `/api/alerts` · `/api/config` · `/health`
+`/api/stream` (SSE) · `/api/status` · `/api/sigmets` · `/api/wind` · `/api/flights` · `/api/aircraft/<icao24>` · `/api/photo/<icao24>` · `/api/track/<icao24>` · `/api/search` · `/api/airports` · `/api/airport/<código>` · `/api/replay` · `/api/replay/range` · `/api/stats` · `/api/watchlist` · `/api/alerts` · `/api/config` · `/health`
 
-Límite de peticiones por IP (300/min por defecto, 30/min para abrir streams).
+Límite de peticiones por IP (300/min por defecto, 30/min para abrir streams) y tope de espectadores simultáneos (`MAX_STREAMS`, 150 por defecto; los siguientes reciben 503). Con `ADMIN_TOKEN` definido, la lista de seguimiento y sus alertas son privadas (también para leerlas); las emergencias siguen siendo públicas. Todas las respuestas llevan Content-Security-Policy, `X-Content-Type-Options`, bloqueo de iframes y HSTS tras HTTPS.
 
 ## Pruebas y calidad
 
@@ -86,7 +89,7 @@ echo DB_PASSWORD=cambia-esto >> .env
 docker compose up --build
 ```
 
-Sirve en `127.0.0.1:8000` con `gunicorn` (un solo worker: el estado vive en memoria). El despliegue en servidor, detrás de un proxy inverso, queda pendiente.
+Sirve en `127.0.0.1:8000` con `gunicorn` (un solo worker: el estado vive en memoria; hilos en `gunicorn.conf.py`). Para servidor, proxy inverso, copias de seguridad, vigilancia de `/health` y prueba de carga, ver [docs/OPERACION.md](docs/OPERACION.md). Condiciones de uso de las fuentes: [docs/FUENTES.md](docs/FUENTES.md). **El despliegue aún no se ha hecho.**
 
 ## Fuentes de datos y licencias
 

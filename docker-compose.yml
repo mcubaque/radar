@@ -1,7 +1,14 @@
+x-logging: &logging  # rotacion de logs: sin esto crecen sin limite
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_USER: radar
       POSTGRES_PASSWORD: ${DB_PASSWORD:?define DB_PASSWORD en .env}
@@ -17,6 +24,7 @@ services:
   app:
     build: .
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
