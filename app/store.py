@@ -2,6 +2,7 @@
 import logging
 import threading
 import time
+from collections import deque
 from functools import partial
 
 from app.flight import in_bbox, mark_grounded
@@ -12,6 +13,8 @@ from app.providers import ProviderError
 log = logging.getLogger(__name__)
 
 MAX_EVENTS = 100
+TRACK_POINTS = 240  # ~40 min a un punto cada 10 s
+TRACK_STEP_S = 10
 
 
 class FlightStore:
@@ -24,6 +27,9 @@ class FlightStore:
         self.events = []  # alertas recientes para los clientes conectados
         self.version = 0
         self.last_cycle = None
+        self.ttl_factor = 1.0  # >1 cuando la fuente principal tiene pocos creditos
+        self.meta = {}  # fuente activa y creditos, se envia a los clientes junto a los vuelos
+        self.tracks = {}  # id -> deque de [lat, lon, alt, ts] recientes, para la estela sin base de datos
         self._cond = threading.Condition()
 
     def _cell(self, cell):
@@ -44,10 +50,11 @@ class FlightStore:
     def due_cells(self, now=None):
         """Celdas activas (vistas por alguien o fijadas) cuyo dato esta vencido, las mas viejas primero."""
         now = now or time.time()
+        ttl = self.cell_ttl * self.ttl_factor
         with self._cond:
             due = [
                 (st["fetched"], c) for c, st in self.cells.items()
-                if now - st["fetched"] >= self.cell_ttl and (st["pinned"] or now - st["touched"] < self.active_for)
+                if now - st["fetched"] >= ttl and (st["pinned"] or now - st["touched"] < self.active_for)
             ]
         return [c for _, c in sorted(due)]
 
@@ -64,6 +71,7 @@ class FlightStore:
                     f["_v"] = self.version
                     f["_cell"] = cell
                     self.flights[f["id"]] = f
+                    self._remember(f)
             for gone in st["ids"] - new_ids:  # salio de la cobertura de esta celda
                 old = self.flights.get(gone)
                 if old and old["_cell"] == cell:
@@ -71,6 +79,15 @@ class FlightStore:
             st.update(fetched=now, ids=new_ids, error=None)
             self.last_cycle = now
             self._cond.notify_all()
+
+    def _remember(self, f):
+        track = self.tracks.setdefault(f["id"], deque(maxlen=TRACK_POINTS))
+        if not track or f["ts"] - track[-1][3] >= TRACK_STEP_S:
+            track.append([f["lat"], f["lon"], f.get("alt"), f["ts"]])
+
+    def track(self, flight_id):
+        with self._cond:
+            return list(self.tracks.get(flight_id, ()))
 
     def mark_error(self, cell, error, now=None):
         with self._cond:
@@ -84,6 +101,8 @@ class FlightStore:
             stale = [i for i, f in self.flights.items() if now - f["ts"] > self.stale_after]
             for i in stale:
                 del self.flights[i]
+            for i in [i for i in self.tracks if i not in self.flights and now - self.tracks[i][-1][3] > 1800]:
+                del self.tracks[i]
             if stale:
                 self.version += 1
                 self._cond.notify_all()
@@ -147,12 +166,14 @@ class Ingestor(threading.Thread):
                     lost = partial(looks_grounded, static=self.static, pressure_at=surface_pressure_hpa, lost=True)
                     self.store.land_lost(lost, LOST_AFTER_S)
                 last_prune = time.time()
+            self.store.ttl_factor = self.chain.slowdown()
             cells = self.store.due_cells()
             if not cells:
                 time.sleep(0.5)
             for cell in cells:
                 try:
-                    flights, _source = self.chain.fetch_cell(cell)
+                    flights, source = self.chain.fetch_cell(cell)
+                    self.store.meta = {"source": source, "credits": self.chain.credits(), "slow": self.store.ttl_factor}
                 except ProviderError as e:
                     self.store.mark_error(cell, str(e))
                 else:

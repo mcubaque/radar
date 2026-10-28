@@ -1,59 +1,16 @@
-import hmac
+"""Rutas de la pagina, el estado del servidor, los vuelos en vivo y el detalle de un vuelo."""
 import json
 import os
-import re
 import time
 
-from flask import (
-    Blueprint,
-    Response,
-    current_app,
-    jsonify,
-    render_template,
-    request,
-    send_from_directory,
-    stream_with_context,
-)
+from flask import Response, current_app, jsonify, render_template, request, send_from_directory, stream_with_context
 
 from app import media
 from app.extensions import limiter
-from app.flight import EMERGENCY_SQUAWKS, cells_for_bbox, haversine_km
+from app.flight import cells_for_bbox
+from app.web import ICAO24, bp, parse_bbox, public
 
-bp = Blueprint("main", __name__)
-
-ICAO24 = re.compile(r"[0-9a-fA-F]{6}")
-WATCH_VALUE = re.compile(r"[A-Za-z0-9 ]{2,20}")
 KEEPALIVE_S = 15
-
-
-def public(f):
-    return {k: v for k, v in f.items() if not k.startswith("_")}
-
-
-def parse_bbox():
-    """(lamin, lomin, lamax, lomax) de la query, o (None, respuesta de error)."""
-    try:
-        bbox = tuple(float(request.args[k]) for k in ("lamin", "lomin", "lamax", "lomax"))
-    except (KeyError, ValueError):
-        return None, (jsonify(error="Parametros lamin, lomin, lamax, lomax requeridos"), 400)
-    if not (-90 <= bbox[0] < bbox[2] <= 90 and -180 <= bbox[1] < bbox[3] <= 180):
-        return None, (jsonify(error="bbox invalido"), 400)
-    if len(cells_for_bbox(bbox)) > current_app.config["MAX_CELLS"]:
-        return None, (jsonify(error="Zona demasiado grande, acerca el mapa", code="too_large"), 400)
-    return bbox, None
-
-
-def require_db():
-    if not current_app.db.enabled:
-        return jsonify(error="Historial no disponible (sin base de datos)"), 503
-    return None
-
-
-def require_admin():
-    token = current_app.config["ADMIN_TOKEN"]
-    if token and not hmac.compare_digest(request.headers.get("X-Admin-Token", ""), token):
-        return jsonify(error="No autorizado"), 401
-    return None
 
 
 @bp.route("/")
@@ -94,6 +51,13 @@ def config():
     )
 
 
+@bp.route("/api/status")
+def status():
+    """Fuente de datos activa, creditos restantes de OpenSky y ritmo de actualizacion."""
+    store = current_app.store
+    return jsonify(**store.meta, ttl=round(store.cell_ttl * store.ttl_factor, 1), streams=current_app.streams[0])
+
+
 # --- vuelos en vivo ---
 
 @bp.route("/api/flights")
@@ -114,6 +78,12 @@ def stream():
         return error
     store = current_app.store
     cells = cells_for_bbox(bbox)
+    streams = current_app.streams
+    private = bool(current_app.config["ADMIN_TOKEN"])  # con token, las alertas de seguimiento no salen por el stream
+    with streams[1]:
+        if streams[0] >= current_app.config["MAX_STREAMS"]:
+            return jsonify(error="Demasiados espectadores conectados, intenta en un momento"), 503
+        streams[0] += 1
 
     def sse(event, data):
         return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
@@ -132,15 +102,24 @@ def stream():
             ids = {f["id"] for f in current}
             changed = [public(f) for f in current if f["_v"] > last_version]
             gone = sorted(sent - ids)
-            yield sse("flights", {"full": first, "flights": changed, "gone": gone, "errors": store.errors(cells)})
+            yield sse("flights", {"full": first, "flights": changed, "gone": gone, "errors": store.errors(cells),
+                                  "meta": store.meta})
             for event in store.events_after(last_event):
-                yield sse("alert", event)
+                if not (private and event["kind"] == "watch"):
+                    yield sse("alert", event)
                 last_event = event["id"]
             sent, last_version, first = ids, version, False
 
-    return Response(stream_with_context(generate()), mimetype="text/event-stream", headers={
+    response = Response(stream_with_context(generate()), mimetype="text/event-stream", headers={
         "Cache-Control": "no-cache", "X-Accel-Buffering": "no",
     })
+
+    def release():
+        with streams[1]:
+            streams[0] -= 1
+
+    response.call_on_close(release)  # corre aunque el cliente se vaya antes de la primera lectura
+    return response
 
 
 # --- detalle de un vuelo ---
@@ -188,10 +167,17 @@ def reference():
 @bp.route("/api/track/<icao24>")
 def track(icao24):
     until = request.args.get("until", type=int)
-    return jsonify(current_app.db.track(icao24.lower(), until=until))
+    icao24 = icao24.lower()
+    recorded = current_app.db.track(icao24, until=until)
+    if until is not None:
+        return jsonify(recorded)
+    if len(recorded) < 2:
+        recorded = current_app.store.track(icao24)  # sin historial grabado: las posiciones recientes en memoria
+    # lo observado aqui solo cubre desde que se vio el vuelo; la fuente aporta el recorrido desde el despegue
+    full = current_app.chain.track(icao24)
+    last = full[-1][3] if full else 0
+    return jsonify(full + [p for p in recorded if p[3] > last])
 
-
-# --- busqueda y aeropuertos ---
 
 @bp.route("/api/search")
 def search():
@@ -207,115 +193,3 @@ def search():
     for f in current_app.db.recent_matches(q, 8):
         found.setdefault(f["id"], f)
     return jsonify(flights=list(found.values())[:8], airports=current_app.static.search_airports(q))
-
-
-@bp.route("/api/airports")
-def airports():
-    bbox, error = parse_bbox()
-    if error:
-        return error
-    zoom = request.args.get("z", 6, type=float)
-    max_rank = 0 if zoom < 7 else 1 if zoom < 9 else 2
-    return jsonify(current_app.static.airports_in_bbox(bbox, max_rank))
-
-
-@bp.route("/api/airport/<code>")
-def airport(code):
-    static, store = current_app.static, current_app.store
-    ap = static.airport(code)
-    if not ap:
-        return jsonify(error="Aeropuerto no encontrado"), 404
-    codes = {ap["icao"], ap["ident"], ap["iata"]} - {None}
-    d = 1.0  # grados alrededor del aeropuerto para asegurar datos frescos
-    store.touch(cells_for_bbox((ap["lat"] - d, ap["lon"] - d, ap["lat"] + d, ap["lon"] + d)))
-    nearby = []
-    for f in store.flights.values():
-        dist = haversine_km(ap["lat"], ap["lon"], f["lat"], f["lon"])
-        if dist <= 100:
-            nearby.append((dist, f))
-    out = {"arriving": [], "departing": [], "ground": 0, "airborne_near": 0}
-    for dist, f in sorted(nearby, key=lambda x: x[0]):
-        item = {"id": f["id"], "cs": f.get("cs"), "alt": f.get("alt"), "spd": f.get("spd"), "dist_km": round(dist, 1)}
-        route = static.route_codes(f["cs"], f["lat"], f["lon"]) if f.get("cs") else None
-        if f.get("gnd") and dist < 5:
-            out["ground"] += 1
-        elif dist < 40:
-            out["airborne_near"] += 1
-        if route and route[1] in codes and not f.get("gnd"):
-            out["arriving"].append(item)
-        elif route and route[0] in codes and not f.get("gnd"):
-            out["departing"].append(item)
-    out["arriving"], out["departing"] = out["arriving"][:15], out["departing"][:15]
-    return jsonify(airport=ap, weather=media.weather_at(ap["lat"], ap["lon"]), **out)
-
-
-# --- historial ---
-
-@bp.route("/api/replay/range")
-def replay_range():
-    return require_db() or jsonify(current_app.db.replay_range())
-
-
-@bp.route("/api/replay")
-def replay():
-    unavailable = require_db()
-    if unavailable:
-        return unavailable
-    bbox, error = parse_bbox()
-    if error:
-        return error
-    t = request.args.get("t", type=int)
-    if t is None:
-        return jsonify(error="t requerido"), 400
-    return jsonify(current_app.db.replay_at(bbox, t))
-
-
-@bp.route("/api/stats")
-def stats():
-    unavailable = require_db()
-    if unavailable:
-        return unavailable
-    hours = max(1, min(request.args.get("hours", 24, type=int), current_app.config["RETENTION_DAYS"] * 24))
-    data = current_app.db.stats(hours)
-    for row in data["airlines"]:
-        info = current_app.static.airline(row["airline"] + "0")
-        row["name"] = info["name"] if info else None
-    return jsonify(hours=hours, **data)
-
-
-# --- seguimiento y alertas ---
-
-@bp.route("/api/watchlist", methods=["GET", "POST"])
-def watchlist():
-    unavailable = require_db()
-    if unavailable:
-        return unavailable
-    if request.method == "GET":
-        return jsonify(current_app.db.watchlist())
-    denied = require_admin()
-    if denied:
-        return denied
-    body = request.get_json(silent=True) or {}
-    kind, value = body.get("kind"), str(body.get("value", "")).strip()
-    if kind not in ("callsign", "icao24", "registration", "squawk") or not WATCH_VALUE.fullmatch(value):
-        return jsonify(error="kind o value invalido"), 400
-    if kind == "squawk" and value in EMERGENCY_SQUAWKS:
-        return jsonify(error="Los squawk de emergencia ya se vigilan siempre"), 400
-    item = current_app.db.add_watch(kind, value.upper(), str(body.get("label") or "")[:60] or None)
-    current_app.alerts.reload_watchlist()
-    return jsonify(item), 201
-
-
-@bp.route("/api/watchlist/<int:watch_id>", methods=["DELETE"])
-def watchlist_delete(watch_id):
-    unavailable = require_db() or require_admin()
-    if unavailable:
-        return unavailable
-    current_app.db.delete_watch(watch_id)
-    current_app.alerts.reload_watchlist()
-    return "", 204
-
-
-@bp.route("/api/alerts")
-def alerts():
-    return jsonify(current_app.db.alerts() if current_app.db.enabled else current_app.store.events[::-1])

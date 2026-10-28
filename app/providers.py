@@ -77,8 +77,12 @@ class Provider:
             "last_error": self.last_error,
         }
 
+    def _read_quota(self, response):
+        """Gancho para fuentes que informan de su cuota en las cabeceras."""
+
     def _get_json(self, url, **kwargs):
         r = self.session.get(url, timeout=15, **kwargs)
+        self._read_quota(r)
         if r.status_code == 429:
             # OpenSky avisa con su propia cabecera cuando se agotan los creditos del dia
             header = r.headers.get("X-Rate-Limit-Retry-After-Seconds") or r.headers.get("Retry-After", "")
@@ -141,12 +145,23 @@ class OpenSky(Provider):
     name = "opensky"
     min_interval = 2.0
     states_url = "https://opensky-network.org/api/states/all"
+    track_url = "https://opensky-network.org/api/tracks/all"
     token_url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
 
     def __init__(self, client_id="", client_secret=""):
         super().__init__()
         self.client_id, self.client_secret = client_id, client_secret
         self._token, self._token_exp = None, 0
+        self.credits = None  # creditos que quedan hoy, segun X-Rate-Limit-Remaining
+        self._tracks = {}  # icao24 -> (instante, puntos)
+
+    def _read_quota(self, response):
+        remaining = response.headers.get("X-Rate-Limit-Remaining", "")
+        if remaining.isdigit():
+            self.credits = int(remaining)
+
+    def status(self):
+        return {**super().status(), "credits": self.credits}
 
     def _headers(self):
         if not self.client_id:
@@ -176,6 +191,20 @@ class OpenSky(Provider):
         now = time.time()
         return [f for f in (normalize_opensky(s, now) for s in data.get("states") or []) if f]
 
+    def track(self, icao24):
+        """Trayectoria del vuelo en curso desde que despego, como [lat, lon, alt, ts]; [] si OpenSky no la tiene."""
+        cached = self._tracks.get(icao24)
+        if cached and time.time() - cached[0] < TRACK_CACHE_S:
+            return cached[1]
+        try:
+            data = self._get_json(self.track_url, headers=self._headers(), params={"icao24": icao24, "time": 0})
+        except (requests.RequestException, RateLimited, ValueError):
+            return []
+        path = (data or {}).get("path") or []
+        points = [[p[1], p[2], p[3], p[0]] for p in path if p[1] is not None and p[2] is not None]
+        self._tracks[icao24] = (time.time(), points)
+        return points
+
 
 def merge(*lists):
     """Une listas de vuelos dejando, por aeronave, la posicion mas reciente."""
@@ -190,6 +219,8 @@ def merge(*lists):
 SPARSE = 20  # menos aviones que esto en una celda: se pide una segunda opinion a otra fuente
 SECOND_OPINION_EVERY = 20  # segundos entre segundas opiniones de una misma celda (cuida la cuota)
 EXTRA_MAX_AGE = 60  # segundos que se reutiliza la ultima segunda opinion
+TRACK_CACHE_S = 120  # una trayectoria de OpenSky se reutiliza este tiempo
+LOW_CREDITS = 800 # con menos creditos de OpenSky se espacian las peticiones (x2, y x4 bajo la cuarta parte)
 
 
 class ProviderChain:
@@ -202,6 +233,18 @@ class ProviderChain:
     def __init__(self, providers):
         self.providers = providers
         self._extra = {}  # celda -> (instante, vuelos de la segunda opinion)
+        self.active = None  # nombre de la fuente que respondio en la ultima peticion
+
+    def credits(self):
+        """Creditos restantes de la fuente con cuota conocida (OpenSky), o None."""
+        return next((p.credits for p in self.providers if getattr(p, "credits", None) is not None), None)
+
+    def slowdown(self):
+        """Factor por el que alargar el tiempo entre refrescos para no agotar la cuota del dia."""
+        credits = self.credits()
+        if credits is None or credits >= LOW_CREDITS:
+            return 1.0
+        return 4.0 if credits < LOW_CREDITS / 4 else 2.0
 
     def _usable(self, cell):
         now = time.time()
@@ -217,6 +260,7 @@ class ProviderChain:
                 errors.append(str(e))
                 log.warning("Fuente caida: %s", e)
                 continue
+            self.active = source
             if len(primary) >= SPARSE:
                 return primary, source
             return self._with_second_opinion(cell, primary, candidates[i + 1:], source)
@@ -236,6 +280,11 @@ class ProviderChain:
         if now - taken_at > EXTRA_MAX_AGE:
             return primary, source
         return merge(extra, primary), source
+
+    def track(self, icao24):
+        """Trayectoria desde el despegue, si alguna fuente la ofrece (hoy solo OpenSky)."""
+        source = next((p for p in self.providers if hasattr(p, "track")), None)
+        return source.track(icao24) if source else []
 
     def status(self):
         return [p.status() for p in self.providers]

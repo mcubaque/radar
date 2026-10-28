@@ -196,7 +196,31 @@ class Database:
             row = self._query(f"SELECT {selects} {window}", (hours,), default=[])
             if row:
                 altitude = [{"band": name, "positions": row[0][f"b{i}"]} for i, (name, _) in enumerate(ALTITUDE_BANDS)]
-        return {"per_hour": per_hour, "airlines": airlines, "altitude": altitude}
+        return {"per_hour": per_hour, "airlines": airlines, "altitude": altitude, "records": self.records(hours)}
+
+    def records(self, hours):
+        """Marcas del periodo: aeronave mas alta y mas rapida, tipo mas visto y total de aeronaves distintas."""
+        window = "recorded_at > now() - make_interval(hours => %s)"
+        # los topes descartan lecturas absurdas (errores de transponder) que arruinarian el record
+        highest = self._query(
+            "SELECT icao24, callsign, type_code, altitude FROM positions "
+            f"WHERE {window} AND NOT on_ground AND altitude BETWEEN 0 AND 20000 ORDER BY altitude DESC LIMIT 1",
+            (hours,), default=[])
+        fastest = self._query(
+            "SELECT icao24, callsign, type_code, velocity FROM positions "
+            f"WHERE {window} AND NOT on_ground AND velocity BETWEEN 0 AND 400 ORDER BY velocity DESC LIMIT 1",
+            (hours,), default=[])
+        common = self._query(
+            "SELECT type_code, count(DISTINCT icao24)::int AS aircraft FROM positions "
+            f"WHERE {window} AND type_code IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 1", (hours,), default=[])
+        total = self._query(
+            f"SELECT count(DISTINCT icao24)::int AS n FROM positions WHERE {window}", (hours,), default=[])
+        return {
+            "highest": highest[0] if highest else None,
+            "fastest": fastest[0] if fastest else None,
+            "common_type": common[0] if common else None,
+            "aircraft": total[0]["n"] if total else 0,
+        }
 
     # --- lista de seguimiento y alertas ---
 

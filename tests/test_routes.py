@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app import media
+from app import aviation, media
 from app.extensions import limiter
 
 NY = "lamin=40.0&lomin=-75.0&lamax=41.0&lomax=-73.0"
@@ -26,6 +26,15 @@ class FakeStatic:
 
     def search_airports(self, q, limit=6):
         return [{"iata": "JFK", "name": "Kennedy"}] if q == "jfk" else []
+
+    def frequencies(self, ident):
+        return [{"type": "TWR", "description": "KENNEDY TWR", "mhz": 119.1}]
+
+    def runways_near(self, lat, lon):
+        return [{"ident": "KJFK", "runways": [{"le_ident": "04L", "he_ident": "22R"}]}]
+
+    def runways(self, ident):
+        return [{"le_ident": "04", "le_hdg": 40.0, "he_ident": "22", "he_hdg": 220.0, "lat": 40.64, "lon": -73.78}]
 
     def airport(self, code):
         return {"icao": "KJFK", "ident": "KJFK", "iata": "JFK", "lat": 40.64, "lon": -73.78, "name": "Kennedy"} if code.upper() == "JFK" else None
@@ -92,7 +101,11 @@ def test_aircraft_detail(seeded, client):
 
 def test_airport_lists_arrivals(seeded, client, monkeypatch):
     monkeypatch.setattr(media, "weather_at", lambda lat, lon: {"temperature_2m": 15})
+    monkeypatch.setattr(aviation, "metar", lambda icao: {"fltCat": "VFR"})
+    monkeypatch.setattr(aviation, "taf", lambda icao: None)
     data = client.get("/api/airport/jfk").get_json()
+    assert data["metar"]["fltCat"] == "VFR" and data["runways"][0]["le_ident"] == "04"
+    assert data["frequencies"][0] == {"type": "TWR", "description": "KENNEDY TWR", "mhz": 119.1}
     assert [f["cs"] for f in data["arriving"]] == ["DAL100"]
     assert data["ground"] == 1 and data["weather"]["temperature_2m"] == 15
     assert client.get("/api/airport/nope").status_code == 404
@@ -155,7 +168,8 @@ def test_watchlist_writes_require_admin_token_when_configured(app, client):
     assert post(client, {"kind": "callsign", "value": "DAL100"}).status_code == 401
     assert post(client, {"kind": "callsign", "value": "DAL100"}, token="mal").status_code == 401
     assert post(client, {"kind": "callsign", "value": "DAL100"}, token="secreto").status_code == 201
-    assert client.get("/api/watchlist").status_code == 200  # leer es libre
+    assert client.get("/api/watchlist").status_code == 401  # con token, la lista es privada tambien para leerla
+    assert client.get("/api/watchlist", headers={"X-Admin-Token": "secreto"}).status_code == 200
     assert client.delete("/api/watchlist/1").status_code == 401
     assert client.delete("/api/watchlist/1", headers={"X-Admin-Token": "secreto"}).status_code == 204
 
@@ -172,3 +186,48 @@ def test_rate_limit_returns_429(app, client):
     finally:
         limiter.enabled = False
         limiter.reset()
+
+
+def test_alerts_without_token_only_show_emergencies(app, client):
+    app.db = FakeDb()
+    app.db.alerts = lambda: [{"kind": "watch", "message": "privado"}, {"kind": "emergency", "message": "7700"}]
+    assert len(client.get("/api/alerts").get_json()) == 2
+    app.config["ADMIN_TOKEN"] = "secreto"
+    assert [a["kind"] for a in client.get("/api/alerts").get_json()] == ["emergency"]
+    assert len(client.get("/api/alerts", headers={"X-Admin-Token": "secreto"}).get_json()) == 2
+
+
+def test_security_headers_are_present(client):
+    h = client.get("/").headers
+    assert "frame-ancestors 'none'" in h["Content-Security-Policy"] and "script-src 'self'" in h["Content-Security-Policy"]
+    assert h["X-Content-Type-Options"] == "nosniff" and h["X-Frame-Options"] == "DENY"
+
+
+def test_stream_is_refused_beyond_the_viewer_limit(app, client):
+    app.config["MAX_STREAMS"] = 0
+    assert client.get(f"/api/stream?{NY}").status_code == 503
+
+
+def test_status_reports_source_and_credits(app, client):
+    app.store.meta = {"source": "opensky", "credits": 3500, "slow": 1.0}
+    data = client.get("/api/status").get_json()
+    assert data["source"] == "opensky" and data["credits"] == 3500 and data["streams"] == 0
+
+
+def test_track_falls_back_to_recent_positions_in_memory(app, client, flight):
+    app.store.update_cell(CELL, [flight(id="abc123", ts=1000)])
+    assert client.get("/api/track/abc123").get_json() == [[40.7, -74.0, 10000, 1000]]
+
+
+def test_track_starts_at_takeoff_with_the_source_path_then_continues_with_what_was_seen(app, client, flight):
+    app.chain.track = lambda icao24: [[4.7, -74.1, 0, 500], [4.8, -74.0, 3000, 900]]
+    app.store.update_cell(CELL, [flight(id="abc123", ts=1000)])
+    points = client.get("/api/track/abc123").get_json()
+    assert [p[3] for p in points] == [500, 900, 1000]
+
+
+def test_runways_near_returns_airports_with_their_runway_ends(app, client):
+    app.static = FakeStatic()
+    data = client.get("/api/runways?lat=40.6&lon=-73.7").get_json()
+    assert data[0]["ident"] == "KJFK" and data[0]["runways"][0]["le_ident"] == "04L"
+    assert client.get("/api/runways?lat=x").status_code == 400

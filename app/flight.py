@@ -2,7 +2,7 @@
 
 Un vuelo es un dict con claves cortas y unidades SI (altitud en m, velocidades en m/s):
 id, cs (callsign), reg, ty (tipo OACI), cat (categoria ADS-B), lat, lon, alt, spd, hdg, vr,
-gnd (en tierra), sq (squawk), em (emergencia), mil (militar), ts (epoch de la posicion).
+gnd (en tierra), sq (squawk), em (emergencia), mil (militar), int (aeronave de interes), ts (epoch de la posicion).
 Las claves con valor None se omiten.
 """
 import math
@@ -56,6 +56,7 @@ def normalize_readsb(ac, now=None):
         "sq": squawk,
         "em": 1 if emergency else None,
         "mil": 1 if (ac.get("dbFlags") or 0) & 1 else None,
+        "int": 1 if (ac.get("dbFlags") or 0) & 2 else None,
         "ts": round(now - age),
     })
 

@@ -37,6 +37,7 @@ class Config:
 
     CELL_TTL = float(os.getenv("CELL_TTL", "10"))  # segundos entre refrescos de cada celda
     MAX_CELLS = int(os.getenv("MAX_CELLS", "16"))  # celdas maximas por vista
+    MAX_STREAMS = int(os.getenv("MAX_STREAMS", "150"))  # espectadores simultaneos; mas reciben 503
     MIN_ZOOM = int(os.getenv("MIN_ZOOM", "6"))
     AUTO_FETCH_STATIC = _flag("AUTO_FETCH_STATIC", "1")
 
@@ -58,4 +59,5 @@ class Config:
 
     LOG_JSON = _flag("LOG_JSON")
     TRUST_PROXY = _flag("TRUST_PROXY")
+    RATELIMIT_ENABLED = not _flag("DISABLE_RATELIMIT")  # solo para pruebas de carga desde una IP
     RATELIMIT_DEFAULT = os.getenv("RATELIMIT_DEFAULT", "300 per minute")

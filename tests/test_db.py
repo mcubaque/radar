@@ -92,3 +92,16 @@ def test_unreachable_database_degrades_gracefully():
     database.init()
     assert not database.enabled
     assert database.save_positions([{"id": "a"}]) == 0 and database.track("a") == [] and database.watchlist() == []
+
+
+def test_records_ignore_absurd_readings(db, flight):
+    with db.conn() as c:
+        c.execute(
+            "INSERT INTO positions (icao24, callsign, type_code, latitude, longitude, altitude, velocity, on_ground, time_position) VALUES "
+            "('a1', 'DAL1', 'B739', 40, -74, 11000, 250, false, 1), "
+            "('a2', 'UAL2', 'A388', 40, -74, 13000, 280, false, 2), "
+            "('bad', 'BAD1', 'B739', 40, -74, 99999, 9999, false, 3), "
+            "('g1', 'GND1', 'B739', 40, -74, 500, 390, true, 4)")
+    r = db.records(24)
+    assert r["highest"]["icao24"] == "a2" and r["fastest"]["icao24"] == "a2"
+    assert r["common_type"] == {"type_code": "B739", "aircraft": 3} and r["aircraft"] == 4
