@@ -74,7 +74,7 @@ Límite de peticiones por IP (300/min por defecto, 30/min para abrir streams).
 pip install -r requirements-dev.txt
 ruff check .
 pytest                                  # con TEST_DATABASE_URL definido también prueba contra PostgreSQL
-node --test tests/js                    # lógica del mapa
+node --test tests/js/*.test.mjs        # lógica del mapa
 ```
 
 La integración continua (GitHub Actions) corre todo esto con un PostgreSQL de servicio.

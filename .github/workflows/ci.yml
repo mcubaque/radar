@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: node --test tests/js
+      - run: node --test tests/js/*.test.mjs
       - name: Sintaxis de los módulos JS
         run: for f in app/static/js/*.js; do node --check "$f"; done
 
