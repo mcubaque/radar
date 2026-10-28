@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 mi_entorno_virtual/
 .env
+data/
+.pytest_cache/
+.ruff_cache/

@@ -1,5 +1,7 @@
 Flask>=3.0,<4
+Flask-Limiter>=3.5,<5
 requests>=2.31
-psycopg[binary]>=3.1
+psycopg[binary,pool]>=3.1
 APScheduler>=3.10,<4
 python-dotenv>=1.0
+gunicorn>=22
