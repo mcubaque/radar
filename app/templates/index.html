@@ -2,20 +2,175 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>SkyMonitor</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <meta name="description" content="Tráfico aéreo en tiempo real con datos abiertos">
+    <meta name="theme-color" content="#0b1220">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+    <link rel="icon" href="{{ url_for('static', filename='icons/icon.svg') }}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+    <script>
+        // Aplica el tema antes de pintar para evitar un destello
+        try {
+            const theme = (JSON.parse(localStorage.getItem('skymonitor.prefs')) || {}).theme || 'auto';
+            const dark = theme === 'dark' || (theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (e) { /* sin preferencias guardadas */ }
+    </script>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div id="map"></div>
-    <div id="panel">
-        <input id="search" type="search" placeholder="Buscar vuelo (callsign o icao24)" autocomplete="off">
-        <ul id="results"></ul>
-        <button id="locate" type="button">Centrar en mi ubicación</button>
-        <div id="status">Cargando…</div>
+    <div id="map" role="application" aria-label="Mapa de tráfico aéreo"></div>
+
+    <header id="topbar">
+        <div class="searchbox">
+            <input id="search" type="search" role="combobox" aria-expanded="false" aria-controls="suggestions"
+                   autocomplete="off" spellcheck="false" data-i18n-placeholder="search.placeholder" placeholder="Buscar vuelo, matrícula o aeropuerto">
+            <kbd aria-hidden="true">/</kbd>
+            <ul id="suggestions" role="listbox" hidden></ul>
+        </div>
+        <div id="status" role="status" aria-live="polite"><span class="dot"></span><span class="txt">Conectando…</span></div>
+    </header>
+
+    <button id="emergency" type="button" hidden></button>
+
+    <nav id="toolbar" data-i18n-aria="toolbar.label" aria-label="Herramientas">
+        <button id="btn-locate" data-i18n-title="tool.locate" title="Mi ubicación" aria-label="Mi ubicación"><svg viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg></button>
+        <button data-panel="list" data-i18n-title="tool.list" title="Vuelos visibles" aria-label="Vuelos visibles"><svg viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg></button>
+        <button data-panel="filters" data-i18n-title="tool.filters" title="Filtros" aria-label="Filtros"><svg viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg><span class="badge" id="filter-badge" hidden></span></button>
+        <button data-panel="layers" data-i18n-title="tool.layers" title="Capas" aria-label="Capas"><svg viewBox="0 0 24 24"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27-7.38 5.74zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27L12 16z"/></svg></button>
+        <button id="btn-replay" data-i18n-title="tool.replay" title="Reproducción histórica" aria-label="Reproducción histórica" hidden><svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg></button>
+        <button data-panel="stats" data-history data-i18n-title="tool.stats" title="Estadísticas" aria-label="Estadísticas" hidden><svg viewBox="0 0 24 24"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg></button>
+        <button data-panel="watch" data-history data-i18n-title="tool.watch" title="Seguimiento y alertas" aria-label="Seguimiento y alertas" hidden><svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg></button>
+        <button data-panel="settings" data-i18n-title="tool.settings" title="Ajustes" aria-label="Ajustes"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
+    </nav>
+
+    <aside id="drawer" hidden aria-labelledby="drawer-title">
+        <div class="drawer-head">
+            <h2 id="drawer-title"></h2>
+            <button class="icon-btn" id="drawer-close" data-i18n-aria="common.close" aria-label="Cerrar">×</button>
+        </div>
+
+        <section data-panel="list" hidden>
+            <label class="field"><span data-i18n="list.sort">Ordenar por</span>
+                <select id="list-sort">
+                    <option value="alt" data-i18n="list.sort.alt">Altitud</option>
+                    <option value="spd" data-i18n="list.sort.spd">Velocidad</option>
+                    <option value="cs" data-i18n="list.sort.cs">Callsign</option>
+                </select>
+            </label>
+            <ul id="flight-list" class="rows"></ul>
+        </section>
+
+        <section data-panel="filters" hidden>
+            <label class="check"><input type="checkbox" id="f-ground"> <span data-i18n="filters.hideGround">Ocultar aviones en tierra</span></label>
+            <label class="check"><input type="checkbox" id="f-mil"> <span data-i18n="filters.military">Solo militares</span></label>
+            <label class="field"><span data-i18n="filters.type">Tipo de aeronave</span>
+                <select id="f-type">
+                    <option value="all" data-i18n="filters.all">Todos</option>
+                    <option value="plane" data-i18n="filters.plane">Aviones</option>
+                    <option value="light" data-i18n="filters.light">Aviación ligera</option>
+                    <option value="heli" data-i18n="filters.heli">Helicópteros</option>
+                </select>
+            </label>
+            <label class="field"><span data-i18n="filters.alt">Altitud</span>
+                <select id="f-alt">
+                    <option value="all" data-i18n="filters.all">Todos</option>
+                    <option value="low" data-i18n="filters.alt.low">Baja (&lt; 3 km)</option>
+                    <option value="mid" data-i18n="filters.alt.mid">Media (3–9 km)</option>
+                    <option value="high" data-i18n="filters.alt.high">Alta (&gt; 9 km)</option>
+                </select>
+            </label>
+            <label class="field"><span data-i18n="filters.text">Callsign o matrícula empieza por</span>
+                <input id="f-text" type="text" maxlength="8" autocomplete="off" placeholder="DAL, N12…">
+            </label>
+            <button class="btn" id="f-reset" data-i18n="filters.reset">Quitar filtros</button>
+        </section>
+
+        <section data-panel="layers" hidden>
+            <label class="check"><input type="checkbox" id="l-trails"> <span data-i18n="layers.trails">Estelas de los aviones</span></label>
+            <label class="check"><input type="checkbox" id="l-airports"> <span data-i18n="layers.airports">Aeropuertos</span></label>
+            <label class="check"><input type="checkbox" id="l-rain"> <span data-i18n="layers.rain">Radar de lluvia</span></label>
+            <h3 data-i18n="layers.legend">Color por altitud</h3>
+            <ul id="legend" class="legend"></ul>
+        </section>
+
+        <section data-panel="watch" hidden>
+            <form id="watch-form" class="stack">
+                <div class="row2">
+                    <select id="w-kind" data-i18n-aria="watch.kind" aria-label="Tipo">
+                        <option value="callsign">Callsign</option>
+                        <option value="registration" data-i18n="watch.registration">Matrícula</option>
+                        <option value="icao24">ICAO24</option>
+                        <option value="squawk">Squawk</option>
+                    </select>
+                    <input id="w-value" required minlength="2" maxlength="20" pattern="[A-Za-z0-9 ]+" autocomplete="off" data-i18n-placeholder="watch.value" placeholder="Valor">
+                </div>
+                <input id="w-label" maxlength="60" data-i18n-placeholder="watch.label" placeholder="Nota (opcional)">
+                <button class="btn primary" type="submit" data-i18n="watch.add">Vigilar</button>
+            </form>
+            <p class="hint" data-i18n="watch.hint">Las emergencias (squawk 7500, 7600 y 7700) siempre se vigilan.</p>
+            <button class="btn" id="w-notify" data-i18n="watch.notify">Activar avisos del navegador</button>
+            <h3 data-i18n="watch.list">Vigilados</h3>
+            <ul id="watch-list" class="rows"></ul>
+            <h3 data-i18n="watch.alerts">Alertas recientes</h3>
+            <ul id="alert-list" class="rows"></ul>
+        </section>
+
+        <section data-panel="stats" hidden>
+            <label class="field"><span data-i18n="stats.period">Periodo</span>
+                <select id="stats-hours">
+                    <option value="6" data-i18n="stats.6h">Últimas 6 h</option>
+                    <option value="24" selected data-i18n="stats.24h">Últimas 24 h</option>
+                    <option value="72" data-i18n="stats.72h">Últimos 3 días</option>
+                    <option value="168" data-i18n="stats.168h">Últimos 7 días</option>
+                </select>
+            </label>
+            <div id="stats-body"></div>
+        </section>
+
+        <section data-panel="settings" hidden>
+            <label class="field"><span data-i18n="settings.theme">Tema</span>
+                <select id="s-theme">
+                    <option value="auto" data-i18n="settings.theme.auto">Automático</option>
+                    <option value="light" data-i18n="settings.theme.light">Claro</option>
+                    <option value="dark" data-i18n="settings.theme.dark">Oscuro</option>
+                </select>
+            </label>
+            <label class="field"><span data-i18n="settings.units">Unidades</span>
+                <select id="s-units">
+                    <option value="aviation" data-i18n="settings.units.aviation">Aviación (ft, kt)</option>
+                    <option value="metric" data-i18n="settings.units.metric">Métricas (m, km/h)</option>
+                </select>
+            </label>
+            <label class="field"><span data-i18n="settings.lang">Idioma</span>
+                <select id="s-lang"><option value="es">Español</option><option value="en">English</option></select>
+            </label>
+            <button class="btn" id="s-install" hidden data-i18n="settings.install">Instalar aplicación</button>
+            <h3 data-i18n="settings.shortcuts">Atajos</h3>
+            <p class="hint"><kbd>/</kbd> <span data-i18n="settings.sc.search">buscar</span> · <kbd>Esc</kbd> <span data-i18n="settings.sc.close">cerrar</span> · <kbd>F</kbd> <span data-i18n="settings.sc.follow">seguir vuelo</span></p>
+            <h3 data-i18n="settings.credits">Fuentes de datos</h3>
+            <p class="hint">Vuelos: <a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol</a> (ODbL) y <a href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>, OpenSky opcional · Aeronaves: <a href="https://github.com/wiedehopf/tar1090-db" target="_blank" rel="noopener">tar1090-db</a> · Aeropuertos: <a href="https://ourairports.com" target="_blank" rel="noopener">OurAirports</a> · Rutas: <a href="https://github.com/vradarserver/standing-data" target="_blank" rel="noopener">Virtual Radar Server</a> · Aerolíneas: OpenFlights · Fotos: <a href="https://www.planespotters.net" target="_blank" rel="noopener">Planespotters</a> · Clima: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> y <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a> · Mapa: OpenFreeMap, CARTO y OpenStreetMap.</p>
+        </section>
+    </aside>
+
+    <aside id="card" hidden aria-live="off"></aside>
+
+    <div id="replaybar" hidden>
+        <button class="icon-btn" id="rp-play" aria-label="Reproducir">▶</button>
+        <input id="rp-slider" type="range" min="0" max="100" step="1" data-i18n-aria="replay.time" aria-label="Instante">
+        <time id="rp-time"></time>
+        <select id="rp-speed" data-i18n-aria="replay.speed" aria-label="Velocidad">
+            <option value="1">×1</option><option value="10" selected>×10</option><option value="60">×60</option><option value="300">×300</option>
+        </select>
+        <button class="btn" id="rp-live" data-i18n="replay.live">Volver al vivo</button>
     </div>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="{{ url_for('static', filename='main.js') }}"></script>
+
+    <div id="toasts" role="alert" aria-live="assertive"></div>
+    <noscript><p style="position:absolute;top:80px;left:16px">SkyMonitor necesita JavaScript.</p></noscript>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
