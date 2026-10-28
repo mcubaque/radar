@@ -1,62 +1,56 @@
-
----
-
 # SkyMonitor
 
-Breve descripción de tu aplicación aquí.
+Mini clon de Flight Radar: mapa en tiempo real con los aviones de la zona que estés viendo, usando la API pública de [OpenSky](https://opensky-network.org). Opcionalmente guarda el historial en PostgreSQL para dibujar la trayectoria de cada vuelo.
 
-## Requisitos
+## Funciones
 
-- Python (version 3.11.3)
-- Flask (version 3.0.0)
-- MySQL (version 8.0)
-- MySQL-Connector-Python (version 8.2.0)
-- OpenSky API (version 1.3.0)
+- Mapa Leaflet que pide los vuelos de la zona visible (se actualiza al mover/zoom y cada 10 s, sin recargar la página).
+- Iconos de avión rotados según el rumbo; los aviones en tierra salen en gris.
+- Click en un avión: datos y trayectoria guardada (requiere Postgres + recorder).
+- Búsqueda por callsign o icao24 entre los vuelos vistos recientemente.
+- Autenticación OAuth2 de OpenSky opcional (más cuota de peticiones).
+- Si Postgres no está disponible la app sigue funcionando, solo sin historial.
 
 ## Instalación
 
-1. Clona este repositorio en tu máquina local.
-2. Crea un entorno virtual: `python -m venv venv`
-3. Activa el entorno virtual:
-   - En Windows: `venv\Scripts\activate`
-   - En macOS/Linux: `source venv/bin/activate`
-4. Instala las dependencias: `pip install -r requirements.txt`
-5. Configura tu base de datos MySQL según lo especificado en `config.py`.
+```
+python -m venv .venv
+.venv\Scripts\activate          # Windows  (macOS/Linux: source .venv/bin/activate)
+pip install -r requirements.txt
+copy .env.example .env          # y edita los valores
+```
+
+### Base de datos (opcional)
+
+```
+createdb -U postgres radar
+```
+
+Pon la contraseña en `DATABASE_URL` dentro de `.env`. La tabla `positions` se crea sola al arrancar.
+Para grabar posiciones en segundo plano usa `RECORDER_ENABLED=1` (zona definida en `RECORDER_BBOX`).
 
 ## Uso
 
-1. Ejecuta la aplicación Flask:
-   ```
-   flask run
-   ```
-2. Abre tu navegador web y ve a `http://localhost:5000/`.
-3. Interactúa con la aplicación según sea necesario.
+```
+python run.py
+```
 
-## Funcionalidades Principales
+Abre http://localhost:5000/
 
-La aplicación **SkyMonitor** es una herramienta diseñada para obtener y visualizar información en tiempo real sobre el tráfico aéreo en una zona geográfica específica. Utilizando tecnologías como Python, Flask, HTML, JavaScript, MySQL y la API de OpenSky, esta aplicación permite a los usuarios:
+## Estructura
 
-- **Visualizar el Tráfico Aéreo en Tiempo Real:** La aplicación muestra en un mapa interactivo la ubicación y detalles de los vuelos en una región determinada. Los usuarios pueden observar la posición, altitud, velocidad y otros datos relevantes de las aeronaves que se encuentran en vuelo.
+- `run.py`: punto de entrada.
+- `config.py`: configuración desde variables de entorno (`.env`).
+- `app/__init__.py`: `create_app()`.
+- `app/routes.py`: endpoints `/api/flights`, `/api/track/<icao24>`, `/api/search`.
+- `app/opensky.py`: cliente de OpenSky (OAuth2 + cache por zona).
+- `app/db.py`: acceso a Postgres. `app/recorder.py`: grabación periódica con APScheduler.
+- `app/static/`, `app/templates/`: frontend.
 
-- **Almacenar Datos en una Base de Datos:** Además de mostrar los vuelos en tiempo real, la aplicación también captura y almacena la información de los vuelos en una base de datos MySQL. Esto permite un registro histórico de los movimientos de las aeronaves, lo que puede ser útil para análisis posteriores o para uso en aplicaciones relacionadas.
+## Limitaciones
 
-- **Actualización Automática de Datos:** La aplicación se conecta a la API de OpenSky para obtener información actualizada sobre el tráfico aéreo en la zona seleccionada. Esta información se actualiza automáticamente a intervalos regulares, lo que garantiza que los datos mostrados sean siempre precisos y actualizados.
-
-La combinación de estas funcionalidades proporciona a los usuarios una herramienta poderosa para monitorear y analizar el tráfico aéreo en una región específica, con aplicaciones potenciales en áreas como la gestión del tráfico aéreo, la planificación de vuelos, la investigación y más.
-
-
-## Estructura del Proyecto
-
-- `app.py`: Archivo principal de la aplicación Flask.
-- `config.py`: Archivo de configuración, incluye la configuración de la base de datos.
-- `templates/`: Directorio que contiene los archivos HTML de la aplicación.
-
-## Contribución
-
-¡Contribuciones son bienvenidas! Por favor, abre un issue o envía un pull request.
+OpenSky no da origen/destino, matrícula ni modelo, y su cobertura y cuota son limitadas comparadas con Flight Radar 24.
 
 ## Licencia
 
-Este proyecto está bajo la [Licencia MIT](https://github.com/mcubaque/radar/blob/master/LICENSE.md).
-
----
+[MIT](LICENSE.md)

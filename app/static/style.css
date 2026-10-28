@@ -1,0 +1,16 @@
+html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
+#map { position: absolute; inset: 0; }
+#panel {
+    position: absolute; top: 10px; right: 10px; z-index: 1000; width: 260px;
+    background: #fff; padding: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+}
+#panel input { width: 100%; box-sizing: border-box; padding: 6px; }
+#panel button { width: 100%; margin-top: 6px; padding: 6px; cursor: pointer; }
+#results { list-style: none; margin: 4px 0 0; padding: 0; }
+#results li { padding: 4px 6px; cursor: pointer; border-bottom: 1px solid #eee; }
+#results li:hover { background: #eef; }
+#status { margin-top: 6px; font-size: 12px; color: #555; }
+#status.error { color: #b00020; }
+.plane { color: #0b3d91; font-size: 22px; line-height: 22px; text-align: center; text-shadow: 0 0 2px #fff; }
+.plane.ground { color: #888; }
+.plane.selected { color: #d32f2f; }

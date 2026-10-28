@@ -1,17 +1,21 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="20"> <!-- Recarga la página cada 20 segundos -->
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flight Radar</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <title>SkyMonitor</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div id="map" style="height: 500px;"></div>
-    <button onclick="centerMap()">Centrar</button>
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <div id="map"></div>
+    <div id="panel">
+        <input id="search" type="search" placeholder="Buscar vuelo (callsign o icao24)" autocomplete="off">
+        <ul id="results"></ul>
+        <button id="locate" type="button">Centrar en mi ubicación</button>
+        <div id="status">Cargando…</div>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>
 </html>
