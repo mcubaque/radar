@@ -203,8 +203,18 @@ body.chase #card, body.chase #drawer, body.chase #toolbar, body.chase #topbar, b
     #replaybar { bottom: max(12px, env(safe-area-inset-bottom)); flex-wrap: wrap; border-radius: var(--radius); }
     #emergency { top: 64px; }
 }
-@media (max-height: 500px) {
-    #drawer, #card { max-height: 70vh; }
+/* vertical: la hoja deja ver la mitad superior del mapa; la foto se reduce */
+@media (max-width: 900px) and (orientation: portrait) {
+    #drawer, #card { max-height: 42vh; }
+    #card .photo img { height: 96px; }
+}
+/* horizontal: panel lateral estrecho para que el mapa siga a la vista */
+@media (max-height: 500px) and (orientation: landscape) {
+    #drawer, #card {
+        top: max(60px, calc(env(safe-area-inset-top) + 52px)); right: auto; width: min(300px, 42vw); max-height: none;
+        bottom: max(8px, env(safe-area-inset-bottom));
+    }
+    #card .photo { display: none; }
     #replaybar { flex-wrap: nowrap; }
 }
 
