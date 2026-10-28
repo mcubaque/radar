@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?define DB_PASSWORD en .env}
+      POSTGRES_DB: radar
+    volumes:
+      - radar_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U radar -d radar"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://radar:${DB_PASSWORD}@db:5432/radar
+      DATA_DIR: /app/data
+      TRUST_PROXY: "1"
+      LOG_JSON: "1"
+    volumes:
+      - radar_data:/app/data
+    ports:
+      - "127.0.0.1:8000:8000"  # solo local; en el servidor va detras del proxy inverso
+
+volumes:
+  radar_pg_data:
+  radar_data:
